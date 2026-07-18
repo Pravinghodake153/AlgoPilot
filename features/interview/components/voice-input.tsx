@@ -73,6 +73,14 @@ export function VoiceInput() {
       stopListening();
       setAIState("idle");
     } else {
+      // Play a silent utterance to "unlock" the speech synthesis engine 
+      // in modern browsers, allowing it to play asynchronously later.
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        const unlockUtterance = new SpeechSynthesisUtterance("");
+        unlockUtterance.volume = 0;
+        window.speechSynthesis.speak(unlockUtterance);
+      }
+
       startListening();
       setAIState("listening");
     }

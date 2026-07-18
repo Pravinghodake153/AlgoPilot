@@ -157,6 +157,9 @@ export function speak(
   if (options?.onEnd) utterance.onend = options.onEnd;
   if (options?.onError) utterance.onerror = options.onError;
 
+  // Prevent garbage collection bug in Chrome by storing it globally
+  (window as any)._currentUtterance = utterance;
+
   window.speechSynthesis.speak(utterance);
 }
 
