@@ -13,6 +13,8 @@ import { CodeEditor } from "@/features/editor/components/code-editor";
 import { EditorControls } from "@/features/editor/components/editor-controls";
 import { VoiceInput } from "./voice-input";
 
+import { useRouter } from "next/navigation";
+
 interface InterviewClientProps {
   interview: {
     id: string;
@@ -42,9 +44,17 @@ export function InterviewClient({
   interview,
   existingMessages,
 }: InterviewClientProps) {
+  const router = useRouter();
   const initInterview = useInterviewStore((s) => s.initInterview);
   const mode = useInterviewStore((s) => s.mode);
   const status = useInterviewStore((s) => s.status);
+
+  // Redirect to report page when interview is completed
+  useEffect(() => {
+    if (status === "completed") {
+      router.push(`/report/${interview.id}`);
+    }
+  }, [status, interview.id, router]);
 
   // Initialize the store on mount
   useEffect(() => {

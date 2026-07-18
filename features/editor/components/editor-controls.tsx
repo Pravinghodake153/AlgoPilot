@@ -21,6 +21,7 @@ export function EditorControls() {
   const language = useInterviewStore((s) => s.language);
   const interviewId = useInterviewStore((s) => s.interviewId);
   const status = useInterviewStore((s) => s.status);
+  const setStatus = useInterviewStore((s) => s.setStatus);
   const [output, setOutput] = useState<ExecutionResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,11 +75,17 @@ export function EditorControls() {
 
     try {
       // Save the code to the database
-      await fetch(`/api/interviews/${interviewId}`, {
+      const response = await fetch(`/api/interviews/${interviewId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, action: "submit" }),
       });
+
+      if (response.ok) {
+        setStatus("completed");
+      } else {
+        console.error("Failed to submit code: server error");
+      }
     } catch {
       console.error("Failed to submit code");
     } finally {
