@@ -1,0 +1,70 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String      @id @default(uuid())
+  clerkId   String      @unique
+  email     String      @unique
+  name      String?
+  imageUrl  String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  interviews Interview[]
+
+  @@index([clerkId])
+}
+
+model Interview {
+  id                 String      @id @default(uuid())
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  language           String      // "cpp", "java", "python", "javascript", "go"
+  difficulty         String      // "easy", "medium", "hard"
+  duration           Int         // in minutes (e.g. 10, 20)
+  status             String      // "setup", "in_progress", "completed", "cancelled"
+  problemTitle       String
+  problemDescription String      @db.Text
+  code               String      @db.Text
+  startedAt          DateTime?
+  endedAt            DateTime?
+  createdAt          DateTime    @default(now())
+  messages           Message[]
+  report             Report?
+
+  @@index([userId])
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  role        String    // "assistant", "user", "system"
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+
+  @@index([interviewId])
+}
+
+model Report {
+  id                 String    @id @default(uuid())
+  interviewId        String    @unique
+  interview          Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  overallScore       Int
+  technicalScore     Int
+  communicationScore Int
+  problemSolvingScore Int
+  optimizationScore  Int
+  codeQualityScore   Int
+  strengths          Json      // String[] stored as JSON
+  weaknesses         Json      // String[] stored as JSON
+  suggestions        Json      // String[] stored as JSON
+  summary            String    @db.Text
+  createdAt          DateTime  @default(now())
+}

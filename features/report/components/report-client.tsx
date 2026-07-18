@@ -1,0 +1,288 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { getScoreColor } from "@/lib/utils";
+
+interface ReportData {
+  overallScore: number;
+  technicalScore: number;
+  communicationScore: number;
+  problemSolvingScore: number;
+  optimizationScore: number;
+  codeQualityScore: number;
+  strengths: string[];
+  weaknesses: string[];
+  suggestions: string[];
+  summary: string;
+}
+
+interface ReportClientProps {
+  interview: {
+    id: string;
+    problemTitle: string;
+    difficulty: string;
+    language: string;
+    duration: number;
+    code: string;
+    createdAt: string;
+  };
+  report: ReportData | null;
+  messageCount: number;
+}
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  javascript: "JavaScript",
+  typescript: "TypeScript",
+  python: "Python",
+  java: "Java",
+  cpp: "C++",
+  go: "Go",
+};
+
+/**
+ * Report page client component.
+ * Shows scores, strengths, weaknesses, suggestions, and summary.
+ * Triggers report generation if not yet generated.
+ */
+export function ReportClient({
+  interview,
+  report: initialReport,
+  messageCount,
+}: ReportClientProps) {
+  const [report, setReport] = useState<ReportData | null>(initialReport);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Auto-generate report if not present
+  useEffect(() => {
+    if (!report && !isGenerating) {
+      generateReport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function generateReport() {
+    setIsGenerating(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/interviews/${interview.id}/report`, {
+        method: "POST",
+      });
+
+      if (!res.ok) throw new Error("Failed to generate report");
+
+      const data = await res.json();
+      setReport(data.report);
+    } catch {
+      setError("Failed to generate report. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <Link
+            href="/dashboard"
+            className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Back to Dashboard
+          </Link>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Interview Report
+          </h1>
+          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+            <span>{interview.problemTitle}</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>{LANGUAGE_LABELS[interview.language] ?? interview.language}</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="capitalize">{interview.difficulty}</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>{messageCount} messages</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Loading state */}
+      {isGenerating && (
+        <div className="mt-10 flex flex-col items-center justify-center py-16">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-foreground" />
+          <p className="mt-4 text-sm text-muted-foreground animate-pulse">
+            Generating your report...
+          </p>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && (
+        <div className="mt-10 flex flex-col items-center gap-3 py-16">
+          <p className="text-sm text-red-400">{error}</p>
+          <button
+            onClick={generateReport}
+            className="h-9 rounded-md bg-secondary px-4 text-sm font-medium text-foreground hover:bg-secondary/80 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Report content */}
+      {report && (
+        <div className="mt-8 flex flex-col gap-8">
+          {/* Overall Score */}
+          <div className="flex items-center gap-6 rounded-xl border border-border p-6">
+            <div className="flex flex-col items-center">
+              <span
+                className={`text-4xl font-bold tabular-nums ${getScoreColor(report.overallScore)}`}
+              >
+                {report.overallScore}
+              </span>
+              <span className="mt-1 text-xs text-muted-foreground">
+                / 100
+              </span>
+            </div>
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold">Overall Score</h2>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                {report.summary}
+              </p>
+            </div>
+          </div>
+
+          {/* Score Breakdown */}
+          <div>
+            <h2 className="mb-4 text-sm font-semibold text-muted-foreground">
+              Score Breakdown
+            </h2>
+            <div className="grid grid-cols-5 gap-3">
+              {[
+                { label: "Technical", score: report.technicalScore },
+                { label: "Communication", score: report.communicationScore },
+                { label: "Problem Solving", score: report.problemSolvingScore },
+                { label: "Optimization", score: report.optimizationScore },
+                { label: "Code Quality", score: report.codeQualityScore },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="flex flex-col items-center rounded-lg border border-border p-4"
+                >
+                  <span
+                    className={`text-xl font-bold tabular-nums ${getScoreColor(item.score)}`}
+                  >
+                    {item.score}
+                  </span>
+                  <span className="mt-1 text-center text-[10px] text-muted-foreground">
+                    {item.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Strengths */}
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-emerald-400">
+              Strengths
+            </h2>
+            <div className="flex flex-col gap-2">
+              {report.strengths.map((s, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="mt-0.5 shrink-0 text-emerald-400"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span className="text-foreground/80">{s}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Weaknesses */}
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-amber-400">
+              Areas for Improvement
+            </h2>
+            <div className="flex flex-col gap-2">
+              {report.weaknesses.map((w, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="mt-0.5 shrink-0 text-amber-400"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" x2="12" y1="8" y2="12" />
+                    <line x1="12" x2="12.01" y1="16" y2="16" />
+                  </svg>
+                  <span className="text-foreground/80">{w}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Suggestions */}
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-blue-400">
+              Suggestions
+            </h2>
+            <div className="flex flex-col gap-2">
+              {report.suggestions.map((s, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="mt-0.5 shrink-0 text-blue-400"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
+                  </svg>
+                  <span className="text-foreground/80">{s}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 border-t border-border pt-6">
+            <Link
+              href="/dashboard"
+              className="h-9 rounded-md bg-secondary px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary/80 inline-flex items-center"
+            >
+              Back to Dashboard
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
