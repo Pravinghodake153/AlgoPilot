@@ -5,9 +5,7 @@
 // Provides interviewer persona, problem presentation,
 // follow-up questions, and report generation.
 
-const API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENROUTER_API_KEY || "";
-const API_URL = process.env.DEEPSEEK_API_URL || process.env.OPENROUTER_API_URL || (process.env.OPENROUTER_API_KEY ? "https://openrouter.ai/api/v1" : "https://api.deepseek.com/v1");
-const MODEL = process.env.DEEPSEEK_MODEL || process.env.OPENROUTER_MODEL || (process.env.OPENROUTER_API_KEY ? "deepseek/deepseek-chat" : "deepseek-chat");
+
 
 export interface ChatMessage {
   role: "system" | "assistant" | "user";
@@ -24,6 +22,10 @@ export async function deepseekChat(
     maxTokens?: number;
   }
 ): Promise<string> {
+  const API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENROUTER_API_KEY || "";
+  const API_URL = process.env.DEEPSEEK_API_URL || process.env.OPENROUTER_API_URL || (process.env.OPENROUTER_API_KEY ? "https://openrouter.ai/api/v1" : "https://api.deepseek.com/v1");
+  const MODEL = process.env.DEEPSEEK_MODEL || process.env.OPENROUTER_MODEL || (process.env.OPENROUTER_API_KEY ? "deepseek/deepseek-chat" : "deepseek-chat");
+
   if (!API_KEY) {
     throw new Error("No API key configured (neither DEEPSEEK_API_KEY nor OPENROUTER_API_KEY)");
   }

@@ -2,9 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { LANGUAGE_CONFIG, type ProgrammingLanguage } from "@/types";
 
-const JUDGE0_API_URL =
-  process.env.JUDGE0_API_URL || "https://judge0-ce.p.rapidapi.com";
-const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || "";
+
 
 /**
  * POST /api/execute
@@ -13,6 +11,10 @@ const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || "";
  * Returns: { result: { stdout, stderr, compileOutput, statusDescription, time, memory } }
  */
 export async function POST(req: Request) {
+  const JUDGE0_API_URL =
+    process.env.JUDGE0_API_URL || "https://judge0-ce.p.rapidapi.com";
+  const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || "";
+
   try {
     const { userId } = await auth();
     if (!userId) {
