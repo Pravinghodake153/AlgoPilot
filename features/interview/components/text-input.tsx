@@ -50,18 +50,8 @@ export function TextInput() {
       const data = await response.json();
       addMessage("assistant", data.response);
 
-      // Speak the response if not muted
-      if (!isSpeakerMuted && typeof window !== "undefined" && "speechSynthesis" in window) {
-        setAIState("speaking");
-        const utterance = new SpeechSynthesisUtterance(data.response);
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        utterance.onend = () => setAIState("idle");
-        utterance.onerror = () => setAIState("idle");
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setAIState("idle");
-      }
+      // Do not speak the response automatically when using Text Mode
+      setAIState("idle");
     } catch {
       addMessage(
         "assistant",
