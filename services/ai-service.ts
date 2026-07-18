@@ -22,42 +22,71 @@ export async function deepseekChat(
     maxTokens?: number;
   }
 ): Promise<string> {
-  const API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENROUTER_API_KEY || "";
-  const API_URL = process.env.DEEPSEEK_API_URL || process.env.OPENROUTER_API_URL || (process.env.OPENROUTER_API_KEY ? "https://openrouter.ai/api/v1" : "https://api.deepseek.com/v1");
-  const MODEL = process.env.DEEPSEEK_MODEL || process.env.OPENROUTER_MODEL || (process.env.OPENROUTER_API_KEY ? "deepseek/deepseek-chat" : "deepseek-chat");
+  const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
+  const OPENROUTER_URL = process.env.OPENROUTER_API_URL || "https://openrouter.ai/api/v1";
+  const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "deepseek/deepseek-chat";
 
-  if (!API_KEY) {
+  const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
+  const DEEPSEEK_URL = process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1";
+  const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+
+  if (!OPENROUTER_KEY && !DEEPSEEK_KEY) {
     throw new Error("No API key configured (neither DEEPSEEK_API_KEY nor OPENROUTER_API_KEY)");
   }
 
-  const response = await fetch(`${API_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${API_KEY}`,
-      // Helpful headers for OpenRouter
-      ...(process.env.OPENROUTER_API_KEY ? {
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "AlgoPilot",
-      } : {}),
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 1024,
-      stream: false,
-    }),
-  });
+  // Helper to make the fetch request
+  const makeRequest = async (url: string, key: string, model: string, isOpenRouter: boolean) => {
+    const response = await fetch(`${url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        ...(isOpenRouter ? {
+          "HTTP-Referer": "http://localhost:3000",
+          "X-Title": "AlgoPilot",
+        } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.maxTokens ?? 1024,
+        stream: false,
+      }),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("DeepSeek API error:", response.status, errorText);
-    throw new Error(`DeepSeek API error: ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || "";
+  };
+
+  // 1. Try OpenRouter first (Primary)
+  if (OPENROUTER_KEY) {
+    try {
+      return await makeRequest(OPENROUTER_URL, OPENROUTER_KEY, OPENROUTER_MODEL, true);
+    } catch (err) {
+      console.error("OpenRouter API failed. Falling back to DeepSeek...", err);
+      if (!DEEPSEEK_KEY) {
+        throw new Error("OpenRouter failed and no DeepSeek fallback key is configured.");
+      }
+    }
   }
 
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  // 2. Fallback to Official DeepSeek API
+  if (DEEPSEEK_KEY) {
+    try {
+      return await makeRequest(DEEPSEEK_URL, DEEPSEEK_KEY, DEEPSEEK_MODEL, false);
+    } catch (err) {
+      console.error("DeepSeek API failed.", err);
+      throw err;
+    }
+  }
+
+  throw new Error("API request failed.");
 }
 
 /**

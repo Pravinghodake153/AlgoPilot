@@ -20,7 +20,7 @@ Phase 5:
 Monaco editor and Judge0 integration.
 
 Phase 6:
-DeepSeek interviewer.
+Openrouter/deepseek interviewer.
 
 Phase 7:
 Voice and text modes.
