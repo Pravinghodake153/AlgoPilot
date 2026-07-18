@@ -34,6 +34,10 @@ export async function POST(req: Request) {
       );
     }
 
+    // Track if JDoodle succeeded
+    let jdoodleSuccess = false;
+    let jdoodleResponseData = null;
+
     // JDoodle Execution Flow
     if (JDOODLE_CLIENT_ID && JDOODLE_CLIENT_SECRET) {
       // Map frontend language to JDoodle language code
@@ -48,47 +52,51 @@ export async function POST(req: Request) {
       
       const jdoodleLang = jdoodleLangMap[language] || language;
 
-      const submitResponse = await fetch("https://api.jdoodle.com/v1/execute", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          clientId: JDOODLE_CLIENT_ID,
-          clientSecret: JDOODLE_CLIENT_SECRET,
-          script: sourceCode,
-          language: jdoodleLang,
-          versionIndex: "0",
-          stdin: stdin || "",
-        }),
-      });
+      try {
+        const submitResponse = await fetch("https://api.jdoodle.com/v1/execute", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            clientId: JDOODLE_CLIENT_ID,
+            clientSecret: JDOODLE_CLIENT_SECRET,
+            script: sourceCode,
+            language: jdoodleLang,
+            versionIndex: "0",
+            stdin: stdin || "",
+          }),
+        });
 
-      if (!submitResponse.ok) {
-        const errorText = await submitResponse.text();
-        console.error("JDoodle API Error:", errorText);
-        return NextResponse.json(
-          { error: "JDoodle execution service unavailable" },
-          { status: 502 }
-        );
+        if (submitResponse.ok) {
+          const result = await submitResponse.json();
+          jdoodleSuccess = true;
+          jdoodleResponseData = {
+            result: {
+              stdout: result.output || "",
+              stderr: null, // JDoodle mixes stderr into output
+              compileOutput: null, 
+              statusDescription: result.statusCode === 200 ? "Success" : "Error",
+              statusId: result.statusCode,
+              time: result.cpuTime || "0",
+              memory: result.memory || "0",
+            },
+          };
+        } else {
+          const errorText = await submitResponse.text();
+          console.error("JDoodle API Error (falling back to Judge0):", errorText);
+        }
+      } catch (err) {
+        console.error("JDoodle Exception (falling back to Judge0):", err);
       }
-
-      const result = await submitResponse.json();
-      
-      // Map JDoodle response format to our expected format
-      return NextResponse.json({
-        result: {
-          stdout: result.output || "",
-          stderr: null, // JDoodle mixes stderr into output
-          compileOutput: null, 
-          statusDescription: result.statusCode === 200 ? "Success" : "Error",
-          statusId: result.statusCode,
-          time: result.cpuTime || "0",
-          memory: result.memory || "0",
-        },
-      });
     }
 
-    // --- Fallback to Judge0 if JDoodle is not configured ---
+    // If JDoodle was successful, return its response
+    if (jdoodleSuccess && jdoodleResponseData) {
+      return NextResponse.json(jdoodleResponseData);
+    }
+
+    // --- Fallback to Judge0 if JDoodle failed or is not configured ---
     const config = LANGUAGE_CONFIG[language as ProgrammingLanguage];
     if (!config) {
       return NextResponse.json(
