@@ -11,6 +11,8 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+export const maxDuration = 60; // Extend Vercel timeout to 60 seconds
+
 /**
  * POST /api/interviews/[id]/report
  * Generates an interview report using DeepSeek based on the transcript and code.
