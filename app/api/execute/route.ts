@@ -2,15 +2,18 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { LANGUAGE_CONFIG, type ProgrammingLanguage } from "@/types";
 
-
-
 /**
  * POST /api/execute
- * Executes code via Judge0 API (RapidAPI free tier).
+ * Executes code via JDoodle (Primary) or Judge0 API (Fallback).
  * Accepts: { sourceCode, language, stdin? }
  * Returns: { result: { stdout, stderr, compileOutput, statusDescription, time, memory } }
  */
 export async function POST(req: Request) {
+  // JDoodle Config
+  const JDOODLE_CLIENT_ID = process.env.JDOODLE_CLIENT_ID || "";
+  const JDOODLE_CLIENT_SECRET = process.env.JDOODLE_CLIENT_SECRET || "";
+
+  // Judge0 Config
   const JUDGE0_API_URL =
     process.env.JUDGE0_API_URL || "https://judge0-ce.p.rapidapi.com";
   const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || "";
@@ -31,7 +34,61 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get Judge0 language ID
+    // JDoodle Execution Flow
+    if (JDOODLE_CLIENT_ID && JDOODLE_CLIENT_SECRET) {
+      // Map frontend language to JDoodle language code
+      const jdoodleLangMap: Record<string, string> = {
+        cpp: "cpp17",
+        java: "java",
+        python: "python3",
+        javascript: "nodejs",
+        typescript: "typescript",
+        go: "go",
+      };
+      
+      const jdoodleLang = jdoodleLangMap[language] || language;
+
+      const submitResponse = await fetch("https://api.jdoodle.com/v1/execute", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          clientId: JDOODLE_CLIENT_ID,
+          clientSecret: JDOODLE_CLIENT_SECRET,
+          script: sourceCode,
+          language: jdoodleLang,
+          versionIndex: "0",
+          stdin: stdin || "",
+        }),
+      });
+
+      if (!submitResponse.ok) {
+        const errorText = await submitResponse.text();
+        console.error("JDoodle API Error:", errorText);
+        return NextResponse.json(
+          { error: "JDoodle execution service unavailable" },
+          { status: 502 }
+        );
+      }
+
+      const result = await submitResponse.json();
+      
+      // Map JDoodle response format to our expected format
+      return NextResponse.json({
+        result: {
+          stdout: result.output || "",
+          stderr: null, // JDoodle mixes stderr into output
+          compileOutput: null, 
+          statusDescription: result.statusCode === 200 ? "Success" : "Error",
+          statusId: result.statusCode,
+          time: result.cpuTime || "0",
+          memory: result.memory || "0",
+        },
+      });
+    }
+
+    // --- Fallback to Judge0 if JDoodle is not configured ---
     const config = LANGUAGE_CONFIG[language as ProgrammingLanguage];
     if (!config) {
       return NextResponse.json(
@@ -41,10 +98,9 @@ export async function POST(req: Request) {
     }
 
     if (!JUDGE0_API_KEY) {
-      // Fallback: return mock result when API key not configured
       return NextResponse.json({
         result: {
-          stdout: "Judge0 API key not configured. Add JUDGE0_API_KEY to .env.local",
+          stdout: "Execution engine credentials not configured. Please add JDoodle or Judge0 API keys to .env.local",
           stderr: null,
           compileOutput: null,
           statusDescription: "Info",
@@ -67,7 +123,6 @@ export async function POST(req: Request) {
         source_code: sourceCode,
         language_id: config.id,
         stdin: stdin || "",
-        // Limits for safety
         cpu_time_limit: 5,
         wall_time_limit: 10,
         memory_limit: 128000,
@@ -85,7 +140,6 @@ export async function POST(req: Request) {
 
     const result = await submitResponse.json();
 
-    // Decode Base64 outputs if present
     const decode = (str: string | null) =>
       str ? Buffer.from(str, "base64").toString("utf-8") : null;
 
