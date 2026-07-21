@@ -335,6 +335,7 @@ export async function deepseekChatStream(
                 parsed.choices?.[0]?.delta?.reasoning ||
                 parsed.choices?.[0]?.delta?.reasoning_content ||
                 parsed.choices?.[0]?.delta?.thought;
+              const finishReason = parsed.choices?.[0]?.finish_reason;
 
               if (reasoning) {
                 if (!isReasoning) {
@@ -359,6 +360,14 @@ export async function deepseekChatStream(
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ token: delta })}\n\n`)
                 );
+              }
+              
+              // If OpenRouter signals the response is complete, aggressively close
+              // the stream. This prevents the connection from hanging open for seconds
+              // if they delay sending the final [DONE] event.
+              if (finishReason) {
+                await handleFinish(controller);
+                return;
               }
             } catch {
               // Skip malformed JSON lines

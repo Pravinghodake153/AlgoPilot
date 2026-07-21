@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useInterviewStore } from "@/features/interview/store/interview-store";
-import { speak } from "@/hooks/use-web-speech";
+import { speak, getAvailableVoices, type VoiceOption } from "@/hooks/use-web-speech";
 
 export function InterviewLobby({
   onReady,
@@ -11,8 +11,11 @@ export function InterviewLobby({
 }) {
   const [micStatus, setMicStatus] = useState<"checking" | "ok" | "error">("checking");
   const [speakerTested, setSpeakerTested] = useState(false);
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
   const mode = useInterviewStore((s) => s.mode);
   const setMode = useInterviewStore((s) => s.setMode);
+  const selectedVoiceId = useInterviewStore((s) => s.selectedVoiceId);
+  const setSelectedVoiceId = useInterviewStore((s) => s.setSelectedVoiceId);
   const isResuming = useInterviewStore((s) => s.status === "in_progress");
   const duration = useInterviewStore((s) => s.duration);
   const mounted = useRef(false);
@@ -27,6 +30,26 @@ export function InterviewLobby({
       return () => clearTimeout(timer);
     }
   }, [isResuming, onReady]);
+
+  // Load available voices
+  useEffect(() => {
+    const loadVoices = () => {
+      const available = getAvailableVoices();
+      setVoices(available);
+      if (!selectedVoiceId && available.length > 0) {
+        setSelectedVoiceId(available[0].id);
+      }
+    };
+
+    loadVoices();
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+      return () => {
+        window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+      };
+    }
+  }, [selectedVoiceId, setSelectedVoiceId]);
 
   // Request mic permission
   useEffect(() => {
@@ -58,6 +81,7 @@ export function InterviewLobby({
     setSpeakerTested(true);
     speak("Hello! I am your AI interviewer. Your speaker is working.", {
       rate: 1.0,
+      voiceName: selectedVoiceId?.startsWith("default-") ? null : selectedVoiceId,
       onEnd: () => {},
       onError: () => {},
     });
@@ -75,10 +99,33 @@ export function InterviewLobby({
     );
   }
 
-  const introTime = Math.ceil(duration * 0.1);
-  const problemTime = Math.ceil(duration * 0.4);
-  const codeTime = Math.ceil(duration * 0.4);
-  const wrapTime = Math.max(1, duration - introTime - problemTime - codeTime);
+  let introTime = Math.round(duration * 0.15);
+  let problemTime = Math.round(duration * 0.35);
+  let codeTime = Math.round(duration * 0.35);
+  let wrapTime = duration - introTime - problemTime - codeTime;
+
+  // Provide cleaner, realistic presets for common standard durations
+  if (duration === 20) {
+    introTime = 3;
+    problemTime = 7;
+    codeTime = 7;
+    wrapTime = 3;
+  } else if (duration === 30) {
+    introTime = 4;
+    problemTime = 11;
+    codeTime = 11;
+    wrapTime = 4;
+  } else if (duration === 45) {
+    introTime = 5;
+    problemTime = 15;
+    codeTime = 20;
+    wrapTime = 5;
+  } else if (duration === 60) {
+    introTime = 5;
+    problemTime = 20;
+    codeTime = 25;
+    wrapTime = 10;
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-4 sm:p-8">
@@ -141,6 +188,36 @@ export function InterviewLobby({
                     >
                       Test
                     </button>
+                  </div>
+
+                  {/* Voice Selector */}
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-background p-3">
+                    <div className="flex items-center gap-3 w-full">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <p className="text-sm font-medium">Interviewer Voice</p>
+                        <select 
+                          value={selectedVoiceId || ""}
+                          onChange={(e) => setSelectedVoiceId(e.target.value)}
+                          className="mt-1 block w-full rounded-md border-0 py-1 pl-2 pr-8 text-[11px] text-muted-foreground bg-secondary focus:ring-1 focus:ring-primary outline-none cursor-pointer truncate"
+                        >
+                          <optgroup label="Male Voices">
+                            {voices.filter(v => v.gender === "male").map(v => (
+                              <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Female Voices">
+                            {voices.filter(v => v.gender === "female").map(v => (
+                              <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

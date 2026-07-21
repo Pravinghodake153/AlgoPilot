@@ -1,29 +1,93 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import { useInterviewStore } from "@/features/interview/store/interview-store";
+import {
+  getAvailableVoices,
+  STT_LANGUAGES,
+  type VoiceOption,
+} from "@/hooks/use-web-speech";
 
 /**
- * Voice control bar — Mic toggle, Speaker toggle, Mode switch, End Interview.
- * Minimal controls per UI/UX spec.
+ * Voice control bar — Mic toggle, Speaker toggle, Voice picker,
+ * Language selector, Mode switch, End Interview.
  */
 export function VoiceControls() {
   const isMicMuted = useInterviewStore((s) => s.isMicMuted);
   const isSpeakerMuted = useInterviewStore((s) => s.isSpeakerMuted);
   const mode = useInterviewStore((s) => s.mode);
+  const selectedVoiceId = useInterviewStore((s) => s.selectedVoiceId);
+  const sttLanguage = useInterviewStore((s) => s.sttLanguage);
   const toggleMic = useInterviewStore((s) => s.toggleMic);
   const toggleSpeaker = useInterviewStore((s) => s.toggleSpeaker);
   const setMode = useInterviewStore((s) => s.setMode);
   const setStatus = useInterviewStore((s) => s.setStatus);
   const setTimerActive = useInterviewStore((s) => s.setTimerActive);
+  const setSelectedVoiceId = useInterviewStore((s) => s.setSelectedVoiceId);
+  const setSttLanguage = useInterviewStore((s) => s.setSttLanguage);
+
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [showVoicePicker, setShowVoicePicker] = useState(false);
+  const [showLangPicker, setShowLangPicker] = useState(false);
+  const voicePickerRef = useRef<HTMLDivElement>(null);
+  const langPickerRef = useRef<HTMLDivElement>(null);
+
+  // Load voices (may load async on first call)
+  useEffect(() => {
+    const loadVoices = () => {
+      const available = getAvailableVoices();
+      setVoices(available);
+      // Set default voice if none selected
+      if (!selectedVoiceId && available.length > 0) {
+        setSelectedVoiceId(available[0].id);
+      }
+    };
+
+    loadVoices();
+
+    // Chrome loads voices asynchronously
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+      return () => {
+        window.speechSynthesis.removeEventListener(
+          "voiceschanged",
+          loadVoices
+        );
+      };
+    }
+  }, [selectedVoiceId, setSelectedVoiceId]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        voicePickerRef.current &&
+        !voicePickerRef.current.contains(e.target as Node)
+      ) {
+        setShowVoicePicker(false);
+      }
+      if (
+        langPickerRef.current &&
+        !langPickerRef.current.contains(e.target as Node)
+      ) {
+        setShowLangPicker(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   function handleEndInterview() {
     setTimerActive(false);
     setStatus("completed");
   }
 
+  const selectedVoice = voices.find((v) => v.id === selectedVoiceId);
+  const selectedLang = STT_LANGUAGES.find((l) => l.code === sttLanguage);
+
   return (
     <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
-      {/* Left: Mic + Speaker */}
+      {/* Left: Mic + Speaker + Voice picker + Language */}
       <div className="flex items-center gap-1">
         {/* Mic toggle */}
         <button
@@ -80,6 +144,145 @@ export function VoiceControls() {
             </svg>
           )}
         </button>
+
+        {/* Separator */}
+        <div className="mx-1 h-5 w-px bg-border" />
+
+        {/* Voice Picker */}
+        <div className="relative" ref={voicePickerRef}>
+          <button
+            onClick={() => {
+              setShowVoicePicker(!showVoicePicker);
+              setShowLangPicker(false);
+            }}
+            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground cursor-pointer"
+            aria-label="Select voice"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            </svg>
+            <span className="max-w-[60px] truncate">
+              {selectedVoice?.label || "Voice"}
+            </span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          {showVoicePicker && (
+            <div className="absolute bottom-full left-0 mb-1 min-w-[180px] rounded-lg border border-border bg-background shadow-xl z-50">
+              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                Male Voices
+              </div>
+              {voices
+                .filter((v) => v.gender === "male")
+                .map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => {
+                      setSelectedVoiceId(v.id);
+                      setShowVoicePicker(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-secondary cursor-pointer ${
+                      selectedVoiceId === v.id
+                        ? "text-foreground font-medium"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {selectedVoiceId === v.id && (
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                    <span className={selectedVoiceId === v.id ? "" : "ml-[18px]"}>
+                      {v.label}
+                    </span>
+                  </button>
+                ))}
+              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 border-t border-border">
+                Female Voices
+              </div>
+              {voices
+                .filter((v) => v.gender === "female")
+                .map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => {
+                      setSelectedVoiceId(v.id);
+                      setShowVoicePicker(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-secondary cursor-pointer ${
+                      selectedVoiceId === v.id
+                        ? "text-foreground font-medium"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {selectedVoiceId === v.id && (
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                    <span className={selectedVoiceId === v.id ? "" : "ml-[18px]"}>
+                      {v.label}
+                    </span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* Language Selector */}
+        <div className="relative" ref={langPickerRef}>
+          <button
+            onClick={() => {
+              setShowLangPicker(!showLangPicker);
+              setShowVoicePicker(false);
+            }}
+            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground cursor-pointer"
+            aria-label="Select language"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M2 12h20" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <span className="max-w-[50px] truncate">
+              {selectedLang?.label.split(" ")[0] || "Lang"}
+            </span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          {showLangPicker && (
+            <div className="absolute bottom-full left-0 mb-1 min-w-[150px] rounded-lg border border-border bg-background shadow-xl z-50">
+              {STT_LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => {
+                    setSttLanguage(lang.code);
+                    setShowLangPicker(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-secondary cursor-pointer ${
+                    sttLanguage === lang.code
+                      ? "text-foreground font-medium"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {sttLanguage === lang.code && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  <span className={sttLanguage === lang.code ? "" : "ml-[18px]"}>
+                    {lang.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Center: Mode toggle */}

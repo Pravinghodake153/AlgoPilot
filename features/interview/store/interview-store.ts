@@ -85,6 +85,11 @@ interface InterviewState {
   // Voice
   isMicMuted: boolean;
   isSpeakerMuted: boolean;
+  selectedVoiceId: string | null;
+  sttLanguage: string;
+
+  // Streaming lock — prevents new requests while one is active
+  isStreaming: boolean;
 
   // Layout
   layoutMode: LayoutMode;
@@ -120,6 +125,9 @@ interface InterviewState {
   setTimerActive: (active: boolean) => void;
   toggleMic: () => void;
   toggleSpeaker: () => void;
+  setSelectedVoiceId: (id: string | null) => void;
+  setSttLanguage: (lang: string) => void;
+  setIsStreaming: (streaming: boolean) => void;
   setLayoutMode: (mode: LayoutMode) => void;
   setShowProblem: (show: boolean) => void;
   setShowAIPanel: (show: boolean) => void;
@@ -150,6 +158,9 @@ const initialState = {
   messages: [] as TranscriptMessage[],
   isMicMuted: false,
   isSpeakerMuted: false,
+  selectedVoiceId: null as string | null,
+  sttLanguage: "en-US",
+  isStreaming: false,
   layoutMode: layoutPrefs.layoutMode,
   showProblem: layoutPrefs.showProblem,
   showAIPanel: layoutPrefs.showAIPanel,
@@ -211,6 +222,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
 
   toggleSpeaker: () =>
     set((state) => ({ isSpeakerMuted: !state.isSpeakerMuted })),
+
+  setSelectedVoiceId: (selectedVoiceId) => set({ selectedVoiceId }),
+
+  setSttLanguage: (sttLanguage) => set({ sttLanguage }),
+
+  setIsStreaming: (isStreaming) => set({ isStreaming }),
 
   // Layout actions — persist to localStorage
   setLayoutMode: (layoutMode) => {

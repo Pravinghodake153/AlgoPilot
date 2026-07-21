@@ -12,7 +12,6 @@ interface UseWebSpeechOptions {
 /**
  * Web Speech API hook for speech-to-text recognition.
  * Uses browser-native SpeechRecognition API ($0 cost).
- * Supports multiple languages including Hindi ("hi-IN").
  */
 export function useWebSpeech({
   onResult,
@@ -47,8 +46,6 @@ export function useWebSpeech({
     const recognition = new SpeechRecognitionAPI();
     recognition.continuous = continuous;
     recognition.interimResults = false;
-    // Support Hindi by accepting multiple languages
-    // For Hindi: "hi-IN", for English: "en-US"
     recognition.lang = language;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -199,6 +196,85 @@ export function useWebSpeech({
   };
 }
 
+// ─── Voice Catalog ───────────────────────────
+
+export interface VoiceOption {
+  id: string;
+  name: string;
+  label: string;
+  gender: "male" | "female";
+}
+
+/**
+ * Get available English voices from the browser, categorized as male/female.
+ * Returns a curated list of 5 voices (3 male, 2 female) when available,
+ * falling back to whatever the browser offers.
+ */
+export function getAvailableVoices(): VoiceOption[] {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return getDefaultVoiceList();
+  }
+
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) return getDefaultVoiceList();
+
+  const englishVoices = voices.filter(
+    (v) => v.lang.startsWith("en")
+  );
+
+  if (englishVoices.length === 0) return getDefaultVoiceList();
+
+  // Heuristic to guess gender from voice name
+  const femaleKeywords = ["female", "woman", "samantha", "karen", "moira", "tessa", "fiona", "victoria", "zira", "hazel", "susan", "linda", "jenny", "aria", "sara", "emma"];
+  const maleKeywords = ["male", "man", "daniel", "alex", "fred", "tom", "james", "david", "mark", "guy", "thomas", "oliver", "george", "ryan"];
+
+  const categorized: VoiceOption[] = englishVoices.map((v) => {
+    const nameLower = v.name.toLowerCase();
+    let gender: "male" | "female" = "male"; // default
+
+    if (femaleKeywords.some((kw) => nameLower.includes(kw))) {
+      gender = "female";
+    } else if (maleKeywords.some((kw) => nameLower.includes(kw))) {
+      gender = "male";
+    }
+
+    return {
+      id: v.name,
+      name: v.name,
+      label: `${v.name.split(" ").slice(0, 2).join(" ")}`,
+      gender,
+    };
+  });
+
+  // Pick up to 3 male and 2 female
+  const males = categorized.filter((v) => v.gender === "male").slice(0, 3);
+  const females = categorized.filter((v) => v.gender === "female").slice(0, 2);
+
+  const result = [...males, ...females];
+
+  // If we don't have enough, fill from the full list
+  if (result.length < 3) {
+    for (const v of categorized) {
+      if (!result.find((r) => r.id === v.id)) {
+        result.push(v);
+        if (result.length >= 5) break;
+      }
+    }
+  }
+
+  return result.length > 0 ? result : getDefaultVoiceList();
+}
+
+function getDefaultVoiceList(): VoiceOption[] {
+  return [
+    { id: "default-male-1", name: "Default Male", label: "Alex (Default)", gender: "male" },
+    { id: "default-male-2", name: "Default Male 2", label: "Daniel", gender: "male" },
+    { id: "default-male-3", name: "Default Male 3", label: "Thomas", gender: "male" },
+    { id: "default-female-1", name: "Default Female", label: "Samantha", gender: "female" },
+    { id: "default-female-2", name: "Default Female 2", label: "Karen", gender: "female" },
+  ];
+}
+
 // Prime the voices loading asynchronously at import time
 if (typeof window !== "undefined" && "speechSynthesis" in window) {
   window.speechSynthesis.getVoices();
@@ -210,7 +286,6 @@ if (typeof window !== "undefined" && "speechSynthesis" in window) {
  *
  * @param text The text to speak
  * @param options Configuration options
- * @param options.lang Language/voice (defaults to "en-US")
  */
 export function speak(
   text: string,
@@ -218,6 +293,7 @@ export function speak(
     rate?: number;
     pitch?: number;
     lang?: string;
+    voiceName?: string | null;
     onEnd?: () => void;
     onError?: () => void;
   }
@@ -246,14 +322,12 @@ export function speak(
     utterance.lang = options?.lang ?? "en-US";
 
     const voices = window.speechSynthesis.getVoices();
-    const targetLang = options?.lang ?? "en-US";
-    
-    // Only search/override voice if it's not standard en-US (to let browser choose default premium voice)
-    if (targetLang !== "en-US") {
-      const matchedVoice = voices.find((v) => v.lang === targetLang) || 
-                           voices.find((v) => v.lang.startsWith(targetLang.split("-")[0]));
-      if (matchedVoice) {
-        utterance.voice = matchedVoice;
+
+    // Use specific voice if voiceName is provided
+    if (options?.voiceName) {
+      const selectedVoice = voices.find((v) => v.name === options.voiceName);
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
       }
     }
 
@@ -308,3 +382,13 @@ export function stopSpeaking(): void {
     (window as any)._currentUtterance = null;
   }
 }
+
+/**
+ * Available STT languages for the speech recognition dropdown.
+ */
+export const STT_LANGUAGES = [
+  { code: "en-US", label: "English (US)" },
+  { code: "en-GB", label: "English (UK)" },
+  { code: "en-IN", label: "English (India)" },
+  { code: "hi-IN", label: "Hindi" },
+] as const;

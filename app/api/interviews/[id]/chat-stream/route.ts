@@ -7,7 +7,6 @@ interface RouteContext {
 
 export const runtime = "edge"; // Edge runtime bypasses the 60s Vercel limit!
 export const dynamic = "force-dynamic";
-
 /**
  * POST /api/interviews/[id]/chat-stream
  * Expects the conversation history in the request body.

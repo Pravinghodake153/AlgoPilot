@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useInterviewStore, type TranscriptMessage } from "@/features/interview/store/interview-store";
 import { ProblemPanel } from "./problem-panel";
 import { ConversationPanel } from "./conversation-panel";
@@ -14,6 +14,8 @@ import { VoiceInput } from "./voice-input";
 import { HintButton } from "./hint-button";
 import { InterviewLobby } from "./interview-lobby";
 import { ResizableSplitter } from "@/components/resizable-splitter";
+import { useChatStream } from "@/hooks/use-chat-stream";
+import { useTTS } from "@/hooks/use-tts";
 
 import { useRouter } from "next/navigation";
 import { speak } from "@/hooks/use-web-speech";
@@ -37,6 +39,10 @@ interface InterviewClientProps {
  * Main interview layout — flexible, resizable panels.
  * Supports horizontal (side-by-side) and vertical (stacked) layouts.
  * Panels (problem, AI chat) are collapsible for a minimal interview experience.
+ *
+ * KEY ARCHITECTURE: useChatStream and useTTS hooks live HERE so they
+ * never unmount during mode switches. Both TextInput and VoiceInput
+ * are always mounted (hidden via CSS) to prevent remount issues.
  */
 export function InterviewClient({
   interview,
@@ -57,6 +63,41 @@ export function InterviewClient({
   const setStatus = useInterviewStore((s) => s.setStatus);
   const setTimerActive = useInterviewStore((s) => s.setTimerActive);
   const [lobbyCompleted, setLobbyCompleted] = useState(false);
+
+  // ─── Centralized TTS Hook ──────────────────
+  const { bufferToken, flushAndFinish, resetTTS, stopAll: stopTTS } = useTTS();
+
+  // ─── Centralized Chat Stream Hook ──────────
+  const streamCallbacks = useMemo(
+    () => ({
+      onToken: (token: string, isReasoning?: boolean) => {
+        // Buffer tokens for TTS (skip reasoning tokens)
+        if (!isReasoning) {
+          bufferToken(token);
+        }
+      },
+      onDone: (_fullText: string) => {
+        // Flush remaining TTS buffer and let TTS handle state transition
+        flushAndFinish();
+      },
+      onError: (_err: Error) => {
+        // Stop TTS on error — forceRecovery in the hook handles aiState
+        stopTTS();
+      },
+    }),
+    [bufferToken, flushAndFinish, stopTTS]
+  );
+
+  const { sendMessage } = useChatStream(streamCallbacks);
+
+  // Stable sendMessage for child components
+  const handleSendMessage = useCallback(
+    (text: string) => {
+      resetTTS(); // Clear any previous TTS state
+      sendMessage(text);
+    },
+    [sendMessage, resetTTS]
+  );
 
   // Redirect to report page when interview is completed
   useEffect(() => {
@@ -96,6 +137,7 @@ export function InterviewClient({
     }
 
     return () => {
+      stopTTS();
       useInterviewStore.getState().reset();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,15 +171,27 @@ export function InterviewClient({
             useInterviewStore.getState().addMessage("assistant", data.message);
 
             const currentStore = useInterviewStore.getState();
-            if (currentStore.mode === "voice" && !currentStore.isSpeakerMuted) {
+            if (!currentStore.isSpeakerMuted) {
               currentStore.setAIState("speaking");
+              const voiceName = currentStore.selectedVoiceId;
               speak(data.message, {
                 rate: 1.0,
+                voiceName: voiceName?.startsWith("default-") ? null : voiceName,
                 onEnd: () => {
-                  currentStore.setAIState("listening");
+                  const s = useInterviewStore.getState();
+                  if (s.mode === "voice") {
+                    s.setAIState("listening");
+                  } else {
+                    s.setAIState("idle");
+                  }
                 },
                 onError: () => {
-                  currentStore.setAIState("listening");
+                  const s = useInterviewStore.getState();
+                  if (s.mode === "voice") {
+                    s.setAIState("listening");
+                  } else {
+                    s.setAIState("idle");
+                  }
                 },
               });
             }
@@ -148,15 +202,25 @@ export function InterviewClient({
           useInterviewStore.getState().addMessage("assistant", fallbackMsg);
 
           const currentStore = useInterviewStore.getState();
-          if (currentStore.mode === "voice" && !currentStore.isSpeakerMuted) {
+          if (!currentStore.isSpeakerMuted) {
             currentStore.setAIState("speaking");
             speak(fallbackMsg, {
               rate: 1.0,
               onEnd: () => {
-                currentStore.setAIState("listening");
+                const s = useInterviewStore.getState();
+                if (s.mode === "voice") {
+                  s.setAIState("listening");
+                } else {
+                  s.setAIState("idle");
+                }
               },
               onError: () => {
-                currentStore.setAIState("listening");
+                const s = useInterviewStore.getState();
+                if (s.mode === "voice") {
+                  s.setAIState("listening");
+                } else {
+                  s.setAIState("idle");
+                }
               },
             });
           }
@@ -217,11 +281,15 @@ export function InterviewClient({
       {/* Conversation Transcript */}
       <ConversationPanel />
 
-      {/* Input Controls */}
+      {/* Input Controls — BOTH always mounted, toggled via CSS */}
       {status === "in_progress" && (
         <>
-          {mode === "text" && <TextInput />}
-          {mode === "voice" && <VoiceInput />}
+          <div style={{ display: mode === "text" ? "block" : "none" }}>
+            <TextInput sendMessage={handleSendMessage} />
+          </div>
+          <div style={{ display: mode === "voice" ? "block" : "none" }}>
+            <VoiceInput sendMessage={handleSendMessage} />
+          </div>
           <VoiceControls />
         </>
       )}
