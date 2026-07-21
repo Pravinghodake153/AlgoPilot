@@ -50,9 +50,19 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
 
-    // If report already exists, return it
-    if (interview.report) {
+    const reqUrl = new URL(req.url);
+    const force = reqUrl.searchParams.get("force") === "true";
+
+    // If report already exists and not forced, return it
+    if (interview.report && !force) {
       return NextResponse.json({ report: interview.report });
+    }
+
+    // If force re-generating, delete existing report first
+    if (interview.report && force) {
+      await prisma.report.delete({
+        where: { id: interview.report.id },
+      });
     }
 
     // Ensure interview is completed
@@ -61,6 +71,16 @@ export async function POST(req: Request, context: RouteContext) {
       await prisma.interview.update({
         where: { id },
         data: { status: "completed", endedAt: new Date() },
+      });
+
+      // Log the completion event
+      await prisma.eventLog.create({
+        data: {
+          eventType: "INTERVIEW_COMPLETED",
+          interviewId: id,
+          userId: user.id,
+          details: { reason: "Report generated" }
+        }
       });
     }
 
@@ -103,8 +123,9 @@ Generate the evaluation report as JSON.`,
     let reportData;
     try {
       const aiResponse = await deepseekChat(evaluationMessages, {
-        temperature: 0.3,
-        maxTokens: 4096,
+        temperature: 0.1,
+        maxTokens: 2000,
+        useReportModel: true,
       });
 
       // Robust JSON extraction
@@ -114,8 +135,9 @@ Generate the evaluation report as JSON.`,
         jsonStr = match[0];
       }
       reportData = JSON.parse(jsonStr);
-    } catch (parseError) {
-      console.error("AI Report generation failed. Falling back to default.", parseError);
+    } catch (parseError: any) {
+      const exactError = parseError?.message || String(parseError);
+      console.error("AI Report generation failed. Falling back to default with error detail:", exactError);
       // Fallback report if AI fails
       reportData = {
         overallScore: 50,
@@ -125,18 +147,20 @@ Generate the evaluation report as JSON.`,
         optimizationScore: 50,
         codeQualityScore: 50,
         strengths: ["Attempted the problem", "Engaged with interviewer"],
-        weaknesses: ["Report generation encountered an issue"],
+        weaknesses: [`Report generation error: ${exactError}`],
         suggestions: [
-          "Try the interview again for a more accurate evaluation",
+          "Check API Keys / AI Settings in Admin Dashboard",
+          "Try regenerating the report using the refresh button below",
         ],
-        summary:
-          "The evaluation system encountered an issue generating a detailed report. Please try again.",
+        summary: `The evaluation system encountered an issue: ${exactError}`,
         timeComplexity: "Unknown",
         spaceComplexity: "Unknown",
         isSolved: false,
-        estimatedLevel: "Unknown",
+        estimatedLevel: "Very Basic",
       };
     }
+
+    const finalEstimatedLevel = reportData.estimatedLevel && reportData.estimatedLevel !== "Unknown" ? reportData.estimatedLevel : "Very Basic";
 
     // Save report to database
     const report = await prisma.report.create({
@@ -157,7 +181,7 @@ Generate the evaluation report as JSON.`,
         timeComplexity: reportData.timeComplexity || "Unknown",
         spaceComplexity: reportData.spaceComplexity || "Unknown",
         isSolved: !!reportData.isSolved,
-        estimatedLevel: reportData.estimatedLevel || "Unknown",
+        estimatedLevel: finalEstimatedLevel,
       },
     });
 

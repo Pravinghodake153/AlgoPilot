@@ -13,9 +13,13 @@ import { EditorControls } from "@/features/editor/components/editor-controls";
 import { VoiceInput } from "./voice-input";
 import { HintButton } from "./hint-button";
 import { InterviewLobby } from "./interview-lobby";
+import { WarningToast } from "./warning-toast";
+import { CameraPreview } from "./camera-preview";
 import { ResizableSplitter } from "@/components/resizable-splitter";
 import { useChatStream } from "@/hooks/use-chat-stream";
 import { useTTS } from "@/hooks/use-tts";
+import { useTabSwitchDetection } from "@/hooks/use-tab-switch-detection";
+import { useFaceDetection } from "@/hooks/use-face-detection";
 
 import { useRouter } from "next/navigation";
 import { speakBackend } from "@/hooks/use-tts";
@@ -30,6 +34,8 @@ interface InterviewClientProps {
     problemTitle: string;
     problemDescription: string;
     code: string;
+    tabSwitchCount?: number;
+    outOfFrameCount?: number;
     startedAt: number | null;
   };
   existingMessages: TranscriptMessage[];
@@ -63,6 +69,34 @@ export function InterviewClient({
   const setStatus = useInterviewStore((s) => s.setStatus);
   const setTimerActive = useInterviewStore((s) => s.setTimerActive);
   const [lobbyCompleted, setLobbyCompleted] = useState(false);
+
+  // ─── Proctoring: Tab Switch Detection ─────
+  const isInterviewActive = status === "in_progress" && lobbyCompleted;
+  const {
+    tabSwitchCount,
+    showWarning: showTabWarning,
+    warningMessage: tabWarningMessage,
+    dismissWarning: dismissTabWarning,
+  } = useTabSwitchDetection({
+    enabled: isInterviewActive,
+    interviewId: interview.id,
+    initialCount: interview.tabSwitchCount ?? 0,
+  });
+
+  const {
+    showWarning: showFaceWarning,
+    warningMessage: faceWarningMessage,
+    outOfFrameCount,
+    stream: cameraStream,
+    dismissWarning: dismissFaceWarning,
+  } = useFaceDetection({
+    enabled: isInterviewActive,
+    interviewId: interview.id,
+    initialCount: interview.outOfFrameCount ?? 0,
+    intervalMs: 500,
+    missThreshold: 1,
+    mode: mode,
+  });
 
   // ─── Centralized TTS Hook ──────────────────
   const { bufferToken, flushAndFinish, resetTTS, stopAll: stopTTS } = useTTS();
@@ -149,7 +183,7 @@ export function InterviewClient({
   }, []);
 
   // Handle start/resume when lobby finishes
-  const handleLobbyReady = () => {
+  const handleLobbyReady = (interviewStyle: string = "Standard") => {
     setLobbyCompleted(true);
     setStatus("in_progress");
     setTimerActive(true);
@@ -176,30 +210,32 @@ export function InterviewClient({
           const res = await fetch(`/api/interviews/${interview.id}/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ voiceId: selectedVoiceId }),
+            body: JSON.stringify({ voiceId: selectedVoiceId, interviewStyle }),
           });
-          if (res.ok) {
-            const data = await res.json();
-            useInterviewStore.getState().addMessage("assistant", data.message);
+          if (!res.ok) {
+            throw new Error(`Failed to start interview: ${res.statusText}`);
+          }
 
-            if (!currentStore.isSpeakerMuted) {
-              currentStore.setAIState("speaking");
-              speakBackend(data.message, interview.id, () => {
-                const s = useInterviewStore.getState();
-                if (s.mode === "voice") {
-                  s.setAIState("listening");
-                } else {
-                  s.setAIState("idle");
-                }
-              }, () => {
-                const s = useInterviewStore.getState();
-                if (s.mode === "voice") {
-                  s.setAIState("listening");
-                } else {
-                  s.setAIState("idle");
-                }
-              });
-            }
+          const data = await res.json();
+          useInterviewStore.getState().addMessage("assistant", data.message);
+
+          if (!currentStore.isSpeakerMuted) {
+            currentStore.setAIState("speaking");
+            speakBackend(data.message, interview.id, () => {
+              const s = useInterviewStore.getState();
+              if (s.mode === "voice") {
+                s.setAIState("listening");
+              } else {
+                s.setAIState("idle");
+              }
+            }, () => {
+              const s = useInterviewStore.getState();
+              if (s.mode === "voice") {
+                s.setAIState("listening");
+              } else {
+                s.setAIState("idle");
+              }
+            });
           }
         } catch (error) {
           console.error("Failed to start interview:", error);
@@ -330,6 +366,48 @@ export function InterviewClient({
       {/* Top Navigation */}
       <InterviewNav />
 
+      {/* Proctoring Warning Toasts */}
+      <WarningToast
+        message={tabWarningMessage}
+        isVisible={showTabWarning}
+        onDismiss={dismissTabWarning}
+        durationMs={5000}
+      />
+      <WarningToast
+        message={faceWarningMessage}
+        isVisible={showFaceWarning && !showTabWarning}
+        onDismiss={dismissFaceWarning}
+        durationMs={5000}
+      />
+
+      {/* Camera Preview Floating Window */}
+      {isInterviewActive && <CameraPreview stream={cameraStream} />}
+
+      {/* Proctoring Status Indicator */}
+      {isInterviewActive && (tabSwitchCount > 0 || outOfFrameCount > 0) && (
+        <div className="flex items-center justify-center gap-4 bg-red-500/10 border-b border-red-500/20 px-4 py-1.5 text-xs text-red-400">
+          {tabSwitchCount > 0 && (
+            <span className="flex items-center gap-1">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+              Tab switches: {tabSwitchCount}
+            </span>
+          )}
+          {outOfFrameCount > 0 && (
+            <span className="flex items-center gap-1">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              Out of frame: {outOfFrameCount}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Main Content (Always Editor on Left, AI on Right) */}
       <div className="flex flex-1 overflow-hidden">
         <div
@@ -357,3 +435,4 @@ export function InterviewClient({
     </div>
   );
 }
+

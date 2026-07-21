@@ -49,6 +49,7 @@ export default async function ReportPage({ params }: ReportPageProps) {
         language: interview.language,
         duration: interview.duration,
         code: interview.code,
+        style: interview.style,
         createdAt: interview.createdAt.toISOString(),
       }}
       report={

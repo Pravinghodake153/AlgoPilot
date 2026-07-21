@@ -34,6 +34,8 @@ model Interview {
   problemTitle       String
   problemDescription String      @db.Text
   code               String      @db.Text
+  tabSwitchCount     Int         @default(0)
+  outOfFrameCount    Int         @default(0)
   startedAt          DateTime?
   endedAt            DateTime?
   createdAt          DateTime    @default(now())
@@ -109,4 +111,17 @@ model SystemSetting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model EventLog {
+  id          String   @id @default(uuid())
+  interviewId String?  // Optional, since some events might not be tied to an interview
+  userId      String?  // Optional, for anonymous tracking before login
+  eventType   String   // e.g. "TAB_SWITCH", "CAMERA_OUT_OF_FRAME", "TALKING_DETECTED", "PAGE_LOAD"
+  details     Json?    // Any extra contextual data
+  createdAt   DateTime @default(now())
+
+  @@index([interviewId])
+  @@index([userId])
+  @@index([eventType])
 }

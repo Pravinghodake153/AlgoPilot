@@ -1,5 +1,8 @@
 "use client";
 
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 export function MessageContent({ content }: { content: string }) {
   // Check for complete thinking format
   const completeThinkingMatch = content.match(/(?:\s*\*Thinking\.\.\.\*\s*\n)([\s\S]*?)(?:\n\s*---\s*\n)([\s\S]*)$/);
@@ -13,9 +16,11 @@ export function MessageContent({ content }: { content: string }) {
             {completeThinkingMatch[1]}
           </div>
         </details>
-        <p className="leading-relaxed whitespace-pre-wrap">
-          {completeThinkingMatch[2]}
-        </p>
+        <div className="leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {completeThinkingMatch[2]}
+          </ReactMarkdown>
+        </div>
       </div>
     );
   }
@@ -37,8 +42,10 @@ export function MessageContent({ content }: { content: string }) {
 
   // Regular content
   return (
-    <p className="leading-relaxed whitespace-pre-wrap">
-      {content}
-    </p>
+    <div className="leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }

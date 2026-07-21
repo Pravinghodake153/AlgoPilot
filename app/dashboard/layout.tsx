@@ -24,9 +24,9 @@ export default async function DashboardLayout({
   const isAdmin = email === (process.env.ADMIN_EMAIL || "ghodakepravin154@gmail.com");
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Top Navigation */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6 bg-background">
         {/* Left: Logo */}
         <Link href="/dashboard" className="flex items-center gap-2.5">
           <svg
@@ -64,7 +64,7 @@ export default async function DashboardLayout({
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 bg-background">{children}</main>
     </div>
   );
 }

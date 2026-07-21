@@ -10,6 +10,52 @@ import { useInterviewStore } from "@/features/interview/store/interview-store";
  */
 
 /**
+ * Global audio cache for test speaker audio clips per voice to prevent redundant API calls.
+ */
+const testAudioCache = new Map<string, string>();
+
+/**
+ * Utility to speak test audio for pre-interview check.
+ * Caches the generated audio blob by voiceId so subsequent test clicks require ZERO API calls.
+ */
+export async function speakTestBackend(text: string, voiceId: string, interviewId: string, onEnd?: () => void, onError?: () => void) {
+  const cacheKey = voiceId || "default";
+
+  try {
+    let url = testAudioCache.get(cacheKey);
+
+    if (!url) {
+      const res = await fetch(`/api/interviews/${interviewId}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: voiceId }),
+      });
+      if (!res.ok) throw new Error("TTS failed");
+      
+      const blob = await res.blob();
+      url = URL.createObjectURL(blob);
+      testAudioCache.set(cacheKey, url);
+    }
+
+    const audio = new Audio(url);
+    
+    audio.onended = () => {
+      if (onEnd) onEnd();
+    };
+    audio.onerror = () => {
+      if (onError) onError();
+    };
+    
+    await audio.play();
+    return audio;
+  } catch (e) {
+    console.error(e);
+    if (onError) onError();
+    return null;
+  }
+}
+
+/**
  * Utility to speak a single string via backend TTS.
  * Useful for one-off messages (e.g. welcome message).
  */

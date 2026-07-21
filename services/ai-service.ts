@@ -21,7 +21,12 @@ export async function getProviderConfig() {
   // Default fallbacks from environment
   let activeProvider = "gemini";
   let activeModel = "gemini-2.5-flash";
+  let reportProvider = "gemini";
+  let reportModel = "gemini-2.5-flash";
   let geminiKey = process.env.GEMINI_API_KEY || "";
+  let zaiKey = process.env.ZAI_API_KEY || "511ba8c060534cd2b50e8e78170d4ed2.6hEKr2c10VeIHk3c";
+  let openrouterKey = process.env.OPENROUTER_API_KEY || "";
+  let deepseekKey = process.env.DEEPSEEK_API_KEY || "";
 
   try {
     const providerSetting = await prisma.systemSetting.findUnique({ where: { key: "DEFAULT_AI_PROVIDER" } });
@@ -29,9 +34,26 @@ export async function getProviderConfig() {
 
     const modelSetting = await prisma.systemSetting.findUnique({ where: { key: "DEFAULT_AI_MODEL" } });
     if (modelSetting) activeModel = modelSetting.value;
+    
+    const reportProviderSetting = await prisma.systemSetting.findUnique({ where: { key: "REPORT_AI_PROVIDER" } });
+    if (reportProviderSetting) reportProvider = reportProviderSetting.value;
+    else reportProvider = activeProvider;
+
+    const reportModelSetting = await prisma.systemSetting.findUnique({ where: { key: "REPORT_AI_MODEL" } });
+    if (reportModelSetting) reportModel = reportModelSetting.value;
+    else reportModel = activeModel;
 
     const geminiKeySetting = await prisma.systemSetting.findUnique({ where: { key: "GEMINI_API_KEY" } });
     if (geminiKeySetting && geminiKeySetting.value) geminiKey = geminiKeySetting.value;
+
+    const zaiKeySetting = await prisma.systemSetting.findUnique({ where: { key: "ZAI_API_KEY" } });
+    if (zaiKeySetting && zaiKeySetting.value) zaiKey = zaiKeySetting.value;
+
+    const openrouterKeySetting = await prisma.systemSetting.findUnique({ where: { key: "OPENROUTER_API_KEY" } });
+    if (openrouterKeySetting && openrouterKeySetting.value) openrouterKey = openrouterKeySetting.value;
+
+    const deepseekKeySetting = await prisma.systemSetting.findUnique({ where: { key: "DEEPSEEK_API_KEY" } });
+    if (deepseekKeySetting && deepseekKeySetting.value) deepseekKey = deepseekKeySetting.value;
   } catch (e) {
     console.warn("Failed to fetch SystemSetting from Prisma, using defaults", e);
   }
@@ -39,17 +61,24 @@ export async function getProviderConfig() {
   return {
     activeProvider,
     activeModel,
+    reportProvider,
+    reportModel,
     gemini: {
       key: geminiKey,
       url: "https://generativelanguage.googleapis.com/v1beta/openai",
     },
     openrouter: {
-      key: process.env.OPENROUTER_API_KEY || "",
+      key: openrouterKey,
       url: process.env.OPENROUTER_API_URL || "https://openrouter.ai/api/v1",
     },
     deepseek: {
-      key: process.env.DEEPSEEK_API_KEY || "",
+      key: deepseekKey,
       url: process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1",
+    },
+    zai: {
+      key: zaiKey,
+      url: process.env.ZAI_API_URL || "https://open.bigmodel.cn/api/paas/v4",
+      model: process.env.ZAI_MODEL || "glm-4.7-flash",
     },
   };
 }
@@ -63,6 +92,7 @@ export async function deepseekChat(
   options?: {
     temperature?: number;
     maxTokens?: number;
+    useReportModel?: boolean;
   }
 ): Promise<string> {
   const config = await getProviderConfig();
@@ -116,18 +146,23 @@ export async function deepseekChat(
   }
 
   // Determine active provider settings
+  const activeProviderToUse = options?.useReportModel ? config.reportProvider : config.activeProvider;
+  
   let url = config.gemini.url;
   let key = config.gemini.key;
-  let model = config.activeModel;
+  let model = options?.useReportModel ? config.reportModel : config.activeModel;
   let isOpenRouter = false;
 
-  if (config.activeProvider === "openrouter") {
+  if (activeProviderToUse === "openrouter") {
     url = config.openrouter.url;
     key = config.openrouter.key;
     isOpenRouter = true;
-  } else if (config.activeProvider === "deepseek") {
+  } else if (activeProviderToUse === "deepseek") {
     url = config.deepseek.url;
     key = config.deepseek.key;
+  } else if (activeProviderToUse === "zai" || activeProviderToUse === "glm") {
+    url = config.zai.url;
+    key = config.zai.key;
   } else {
     // Default to Gemini
     url = config.gemini.url;
@@ -135,13 +170,20 @@ export async function deepseekChat(
   }
 
   if (!key) {
-    throw new Error(`No API key configured for provider: ${config.activeProvider}`);
+    throw new Error(`No API key configured for provider: ${activeProviderToUse}`);
   }
 
   try {
     return await makeRequest(url, key, model, isOpenRouter, messages, options, 25000);
   } catch (err) {
-    console.error(`${config.activeProvider} failed.`, err);
+    console.error(`${activeProviderToUse} failed. Attempting Z.AI fallback...`, err);
+    if (activeProviderToUse !== "zai" && config.zai.key) {
+      try {
+        return await makeRequest(config.zai.url, config.zai.key, "glm-4.7-flash", false, messages, options, 25000);
+      } catch (fallbackErr) {
+        console.error("Z.AI fallback also failed:", fallbackErr);
+      }
+    }
     throw err;
   }
 }
@@ -175,6 +217,9 @@ export async function deepseekChatStream(
   } else if (config.activeProvider === "deepseek") {
     url = config.deepseek.url;
     key = config.deepseek.key;
+  } else if (config.activeProvider === "zai" || config.activeProvider === "glm") {
+    url = config.zai.url;
+    key = config.zai.key;
   } else {
     // Default to Gemini
     url = config.gemini.url;
@@ -513,9 +558,9 @@ TONE: Professional, calm, encouraging. Like a real interviewer at a top tech com
  * Build the system prompt for generating the interview report.
  */
 export function buildReportSystemPrompt(): string {
-  return `You are an interview evaluation system. Analyze the interview transcript and code submission to generate a structured performance report.
+  return `You are an expert technical interviewer and evaluation system. Analyze the interview transcript and code submission to generate a highly accurate, structured performance report.
 
-OUTPUT FORMAT (respond ONLY with valid JSON, no markdown):
+OUTPUT FORMAT (respond ONLY with valid JSON, no markdown formatting, no code blocks):
 {
   "overallScore": <0-100>,
   "technicalScore": <0-100>,
@@ -538,29 +583,31 @@ OUTPUT FORMAT (respond ONLY with valid JSON, no markdown):
   "timeComplexity": "e.g., O(N)",
   "spaceComplexity": "e.g., O(1)",
   "isSolved": true,
-  "estimatedLevel": "Junior | Mid-Level | Senior"
+  "estimatedLevel": "Very Basic | Junior | Mid-Level | Senior"
 }
 
 SCORING GUIDELINES:
-- 90-100: Exceptional — Would pass at top tech companies
-- 80-89: Strong — Above average performance
-- 70-79: Good — Meets expectations with minor gaps
-- 60-69: Average — Some significant gaps
-- 50-59: Below Average — Needs improvement
-- Below 50: Weak — Major gaps in multiple areas
+- Be strict and objective. Do not inflate scores. Deduct points for each hint used.
+- 90-100: Exceptional (Optimal solution, no hints, perfect communication)
+- 80-89: Strong (Optimal solution, minor hints, good communication)
+- 70-79: Good (Working solution, some hints, minor gaps)
+- 60-69: Average (Working but suboptimal solution, heavy hints)
+- 50-59: Below Average (Incomplete or buggy solution)
+- Below 50: Weak (Failed to grasp problem, major gaps)
 
 EVALUATE:
 - Technical: Algorithm choice, data structures, correctness
-- Communication: Clarity, explaining thought process, asking questions
-- Problem Solving: Breaking down problems, handling edge cases
-- Optimization: Time/space complexity awareness, improvements
-- Code Quality: Clean code, naming, structure, readability
+- Communication: Clarity, explaining thought process, asking clarifying questions
+- Problem Solving: Breaking down problems, handling edge cases, adapting to hints
+- Optimization: Time/space complexity awareness, proactive improvements
+- Code Quality: Clean code, variable naming, structure, readability
 
 ADVANCED METRICS:
 - "timeComplexity": Analyze the final code to determine the Big-O time complexity.
 - "spaceComplexity": Analyze the final code to determine the Big-O space complexity (auxiliary space).
-- "isSolved": Set to true ONLY if the candidate's final code effectively solves the core problem.
-- "estimatedLevel": Determine seniority (Junior, Mid-Level, or Senior) based on:
+- "isSolved": Set to true ONLY if the candidate's final code effectively solves the core problem and handles standard edge cases.
+- "estimatedLevel": Determine seniority based on performance:
+  - Very Basic: Could not solve the problem or required extreme hand-holding. If you cannot determine, default to "Very Basic". Do not use "Unknown".
   - Junior: Needed heavy hints, missed edge cases, brute-force solutions.
   - Mid-Level: Solid execution, good communication, but maybe missed optimal approach or minor edge cases initially.
   - Senior: Wrote optimal code quickly, proactively handled edge cases, excellent communication of trade-offs.
@@ -568,5 +615,5 @@ ADVANCED METRICS:
 ANNOTATIONS:
 - The transcript contains messages prefixed with "[Msg X]".
 - Create up to 5 transcriptAnnotations linking back to specific message indices where the candidate did something exceptionally well or poorly.
-- Use tags like "Good Communication", "Red Flag", "Optimal Solution", "Missed Edge Case".`;
+- Use tags like "Good Communication", "Red Flag", "Optimal Solution", "Missed Edge Case", "Hint Used".`;
 }

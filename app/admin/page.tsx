@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Sidebar } from "@/features/admin/components/sidebar";
 import { format } from "date-fns";
 
 export default function AdminPage() {
@@ -17,7 +18,14 @@ export default function AdminPage() {
 
   const [provider, setProvider] = useState("gemini");
   const [model, setModel] = useState("gemini-2.5-flash");
+  
+  const [reportProvider, setReportProvider] = useState("gemini");
+  const [reportModel, setReportModel] = useState("gemini-2.5-flash");
+  
   const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [zaiApiKey, setZaiApiKey] = useState("511ba8c060534cd2b50e8e78170d4ed2.6hEKr2c10VeIHk3c");
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [deepseekApiKey, setDeepseekApiKey] = useState("");
 
   useEffect(() => {
     async function fetchData() {
@@ -33,7 +41,12 @@ export default function AdminPage() {
         
         if (data.settings.DEFAULT_AI_PROVIDER) setProvider(data.settings.DEFAULT_AI_PROVIDER);
         if (data.settings.DEFAULT_AI_MODEL) setModel(data.settings.DEFAULT_AI_MODEL);
+        if (data.settings.REPORT_AI_PROVIDER) setReportProvider(data.settings.REPORT_AI_PROVIDER);
+        if (data.settings.REPORT_AI_MODEL) setReportModel(data.settings.REPORT_AI_MODEL);
         if (data.settings.GEMINI_API_KEY) setGeminiApiKey(data.settings.GEMINI_API_KEY);
+        if (data.settings.ZAI_API_KEY) setZaiApiKey(data.settings.ZAI_API_KEY);
+        if (data.settings.OPENROUTER_API_KEY) setOpenrouterApiKey(data.settings.OPENROUTER_API_KEY);
+        if (data.settings.DEEPSEEK_API_KEY) setDeepseekApiKey(data.settings.DEEPSEEK_API_KEY);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -50,7 +63,16 @@ export default function AdminPage() {
       const res = await fetch("/api/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, model, geminiApiKey }),
+        body: JSON.stringify({ 
+          provider, 
+          model, 
+          reportProvider, 
+          reportModel, 
+          geminiApiKey, 
+          zaiApiKey,
+          openrouterApiKey,
+          deepseekApiKey,
+        }),
       });
       if (!res.ok) throw new Error("Failed to save settings");
       alert("Settings saved successfully!");
@@ -74,6 +96,37 @@ export default function AdminPage() {
       
       setUsers(users.filter(u => u.id !== userId));
       alert("User deleted successfully.");
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteInterview = async (userId: string, interviewId: string, problemTitle: string) => {
+    if (!confirm(`Are you sure you want to delete the interview "${problemTitle || "this interview"}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin?interviewId=${interviewId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete interview");
+      
+      setUsers(users.map(u => {
+        if (u.id === userId) {
+          const updatedInterviews = (u.interviews || []).filter((i: any) => i.id !== interviewId);
+          return {
+            ...u,
+            interviews: updatedInterviews,
+            _count: {
+              ...u._count,
+              interviews: Math.max(0, (u._count?.interviews || 1) - 1),
+            },
+          };
+        }
+        return u;
+      }));
+      alert("Interview deleted successfully.");
     } catch (err: any) {
       alert(err.message);
     }
@@ -106,39 +159,39 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-8 md:p-12 max-w-6xl mx-auto">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Manage system settings and view user feedback.</p>
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+      <Sidebar />
+      <div className="flex-1 overflow-auto p-8 md:p-12">
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">System Settings & Users</h1>
+            <p className="text-muted-foreground mt-1">Manage AI providers, API keys, and user data.</p>
+          </div>
         </div>
-        <Link href="/dashboard" className="text-sm text-primary hover:underline">
-          &larr; Back to Dashboard
-        </Link>
-      </div>
 
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Settings Column */}
         <div className="flex flex-col gap-6 lg:col-span-1">
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <h2 className="text-xl font-semibold mb-4">AI Model Settings</h2>
+            <h2 className="text-xl font-semibold mb-4">Interviewer AI Settings</h2>
             
             <div className="space-y-4">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Active Provider</label>
+                <label className="text-sm font-medium">Active Provider (Interview)</label>
                 <select
                   value={provider}
                   onChange={(e) => setProvider(e.target.value)}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <option value="gemini">Gemini (Google)</option>
+                  <option value="zai">Z.AI (GLM / BigModel)</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="deepseek">DeepSeek (Official)</option>
                 </select>
               </div>
 
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Active Model</label>
+                <label className="text-sm font-medium">Active Model (Interview)</label>
                 <input
                   type="text"
                   value={model}
@@ -146,10 +199,45 @@ export default function AdminPage() {
                   placeholder="e.g. gemini-2.5-flash"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Make sure the model matches the selected provider.
-                </p>
               </div>
+            </div>
+          </div>
+          
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">Report AI Settings</h2>
+            
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Active Provider (Report)</label>
+                <select
+                  value={reportProvider}
+                  onChange={(e) => setReportProvider(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="gemini">Gemini (Google)</option>
+                  <option value="zai">Z.AI (GLM / BigModel)</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="deepseek">DeepSeek (Official)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Active Model (Report)</label>
+                <input
+                  type="text"
+                  value={reportModel}
+                  onChange={(e) => setReportModel(e.target.value)}
+                  placeholder="e.g. gemini-2.5-flash"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">API Keys</h2>
+            
+            <div className="space-y-4">
 
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium">Gemini API Key</label>
@@ -160,9 +248,39 @@ export default function AdminPage() {
                   placeholder="Enter custom Gemini API key..."
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Overrides default environment key when set.
-                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Z.AI / GLM API Key</label>
+                <input
+                  type="password"
+                  value={zaiApiKey}
+                  onChange={(e) => setZaiApiKey(e.target.value)}
+                  placeholder="511ba8c060534cd2b50e8e78170d4ed2.6hEKr2c10VeIHk3c"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">OpenRouter API Key</label>
+                <input
+                  type="password"
+                  value={openrouterApiKey}
+                  onChange={(e) => setOpenrouterApiKey(e.target.value)}
+                  placeholder="sk-or-v1-..."
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">DeepSeek API Key</label>
+                <input
+                  type="password"
+                  value={deepseekApiKey}
+                  onChange={(e) => setDeepseekApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
               </div>
 
               <button
@@ -325,6 +443,12 @@ export default function AdminPage() {
                                     <Link href={`/report/${interview.id}`} target="_blank" className="text-primary hover:underline text-xs ml-2">
                                       View &rarr;
                                     </Link>
+                                    <button
+                                      onClick={() => handleDeleteInterview(user.id, interview.id, interview.problemTitle)}
+                                      className="text-red-500 hover:text-red-600 hover:bg-red-500/10 px-2 py-1 rounded transition-colors text-xs font-medium cursor-pointer ml-2"
+                                    >
+                                      Delete
+                                    </button>
                                   </div>
                                 </div>
                               ))}
@@ -339,6 +463,7 @@ export default function AdminPage() {
             </table>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

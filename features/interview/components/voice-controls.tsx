@@ -26,6 +26,10 @@ export function VoiceControls() {
   const setSelectedVoiceId = useInterviewStore((s) => s.setSelectedVoiceId);
   const setSttLanguage = useInterviewStore((s) => s.setSttLanguage);
 
+  const interviewId = useInterviewStore((s) => s.interviewId);
+  const code = useInterviewStore((s) => s.code);
+  const [showConfirm, setShowConfirm] = useState(false);
+
   const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [showVoicePicker, setShowVoicePicker] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState(false);
@@ -77,7 +81,21 @@ export function VoiceControls() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  function handleEndInterview() {
+  function handleEndClick() {
+    setShowConfirm(true);
+  }
+
+  async function handleConfirmEnd() {
+    setShowConfirm(false);
+    try {
+      await fetch(`/api/interviews/${interviewId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, action: "submit" }),
+      });
+    } catch (e) {
+      console.error("Failed to save code on end:", e);
+    }
     setTimerActive(false);
     setStatus("completed");
   }
@@ -316,11 +334,42 @@ export function VoiceControls() {
 
       {/* Right: End Interview */}
       <button
-        onClick={handleEndInterview}
+        onClick={handleEndClick}
         className="h-8 rounded-md px-3 text-xs font-medium text-red-400 transition-colors hover:bg-red-400/10 cursor-pointer"
       >
         End
       </button>
+
+      {/* Confirmation Modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setShowConfirm(false)}
+            aria-hidden
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-lg">
+            <h3 className="text-base font-semibold text-foreground">End Interview?</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Are you sure you want to end the interview? Your current code will be saved and your evaluation report will be generated.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmEnd}
+                className="h-9 rounded-md bg-red-500 px-5 text-sm font-medium text-white transition-colors hover:bg-red-600 cursor-pointer"
+              >
+                End Interview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

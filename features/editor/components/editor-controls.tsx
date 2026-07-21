@@ -32,7 +32,6 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<"output" | "none">("none");
   const [retryCount, setRetryCount] = useState(0);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "done">("idle");
 
   const isDisabled = status !== "in_progress";
@@ -124,26 +123,6 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
     } catch {
       console.error("Failed to submit code");
       setSubmitStatus("idle");
-    }
-  }
-
-  function handleEndInterviewClick() {
-    setShowConfirm(true);
-  }
-
-  async function handleConfirmEnd() {
-    setShowConfirm(false);
-    
-    // Save the final code and end the interview
-    try {
-      await fetch(`/api/interviews/${interviewId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, action: "submit" }),
-      });
-      setStatus("completed");
-    } catch (e) {
-      console.error("Failed to end interview", e);
     }
   }
 
@@ -244,14 +223,6 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
             : "Submit"}
         </button>
 
-        <button
-          onClick={handleEndInterviewClick}
-          disabled={isDisabled}
-          className="inline-flex h-8 items-center rounded-md bg-red-500 px-4 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-40 cursor-pointer"
-        >
-          End Interview
-        </button>
-
         {/* Save indicator */}
         <div className="ml-2">
           {saveIndicator}
@@ -322,36 +293,6 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
         </div>
       )}
 
-      {/* Submit confirmation dialog */}
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setShowConfirm(false)}
-            aria-hidden
-          />
-          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-lg">
-            <h3 className="text-base font-semibold">End Interview?</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Are you sure you want to end the interview early? Your current code will be submitted and your evaluation report will be generated.
-            </p>
-            <div className="mt-5 flex items-center justify-end gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmEnd}
-                className="h-9 rounded-md bg-red-500 px-5 text-sm font-medium text-white transition-colors hover:bg-red-600 cursor-pointer"
-              >
-                End Interview
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

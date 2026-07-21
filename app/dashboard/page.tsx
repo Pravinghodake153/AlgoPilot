@@ -14,15 +14,6 @@ export default async function DashboardPage() {
 
   if (!clerkId) redirect("/sign-in");
 
-  const clerk = await clerkClient();
-  const clerkUser = await clerk.users.getUser(clerkId);
-  const email = clerkUser.emailAddresses[0]?.emailAddress;
-  const isAdmin = email === (process.env.ADMIN_EMAIL || "ghodakepravin154@gmail.com");
-
-  if (isAdmin) {
-    redirect("/admin");
-  }
-
   // Fetch user's interviews from the database
   let interviews: Array<{
     id: string;

@@ -3,18 +3,52 @@
 import { useState, useEffect, useRef } from "react";
 import { useInterviewStore } from "@/features/interview/store/interview-store";
 import { getAvailableVoices, type VoiceOption } from "@/hooks/use-web-speech";
-import { speakBackend } from "@/hooks/use-tts";
+import { speakTestBackend } from "@/hooks/use-tts";
+
+function LobbyVideoPreview({ stream }: { stream: MediaStream | null }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      video.play().catch((err) => console.log("Lobby video play error:", err));
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted
+      className="h-full w-full object-cover -scale-x-100"
+    />
+  );
+}
 
 export function InterviewLobby({
   onReady,
 }: {
-  onReady: () => void;
+  onReady: (style: string) => void;
 }) {
   const [micStatus, setMicStatus] = useState<"checking" | "ok" | "error">("checking");
+  const [cameraStatus, setCameraStatus] = useState<"checking" | "ok" | "error">("checking");
+  const [camStream, setCamStream] = useState<MediaStream | null>(null);
   const [speakerTested, setSpeakerTested] = useState(false);
   const [isPlayingTest, setIsPlayingTest] = useState(false);
   const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [interviewStyle, setInterviewStyle] = useState("Standard");
   const testAudioRef = useRef<HTMLAudioElement | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Bind camera stream to video element once mounted
+  useEffect(() => {
+    if (cameraVideoRef.current && camStream) {
+      cameraVideoRef.current.srcObject = camStream;
+    }
+  }, [camStream, cameraStatus]);
+  
   const mode = useInterviewStore((s) => s.mode);
   const setMode = useInterviewStore((s) => s.setMode);
   const interviewId = useInterviewStore((s) => s.interviewId);
@@ -29,11 +63,11 @@ export function InterviewLobby({
     if (isResuming && !mounted.current) {
       mounted.current = true;
       const timer = setTimeout(() => {
-        onReady();
+        onReady(interviewStyle);
       }, 1500); // Small delay to show "Resuming" toast effect
       return () => clearTimeout(timer);
     }
-  }, [isResuming, onReady]);
+  }, [isResuming, onReady, interviewStyle]);
 
   // Load available voices
   useEffect(() => {
@@ -55,28 +89,44 @@ export function InterviewLobby({
     }
   }, [selectedVoiceId, setSelectedVoiceId]);
 
-  // Request mic permission
+  // Request mic and camera permissions
   useEffect(() => {
     if (isResuming) return;
 
-    let stream: MediaStream | null = null;
+    let micStream: MediaStream | null = null;
+    let camStream: MediaStream | null = null;
     
-    async function checkMic() {
+    async function checkDevices() {
+      // Check Mic
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         setMicStatus("ok");
-        stream.getTracks().forEach((track) => track.stop());
+        micStream.getTracks().forEach((track) => track.stop());
       } catch (err) {
         console.error("Mic check failed:", err);
         setMicStatus("error");
       }
+
+      // Check Camera
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        camStream = stream;
+        setCamStream(stream);
+        setCameraStatus("ok");
+      } catch (err) {
+        console.error("Camera check failed:", err);
+        setCameraStatus("error");
+      }
     }
 
-    checkMic();
+    checkDevices();
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+      if (micStream) {
+        micStream.getTracks().forEach((track) => track.stop());
+      }
+      if (camStream) {
+        camStream.getTracks().forEach((track) => track.stop());
       }
     };
   }, [isResuming]);
@@ -102,8 +152,9 @@ export function InterviewLobby({
 
     if (interviewId) {
       try {
-        const audio = await speakBackend(
+        const audio = await speakTestBackend(
           "Hello! I am your AI interviewer. Your speaker is working.",
+          selectedVoiceId || "",
           interviewId,
           () => setIsPlayingTest(false), // onEnd
           () => setIsPlayingTest(false)  // onError
@@ -172,7 +223,7 @@ export function InterviewLobby({
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-4 sm:p-8">
-      <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+      <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
         <div className="border-b border-border bg-muted/30 p-6 text-center">
           <h1 className="text-2xl font-bold tracking-tight">Pre-Interview Check</h1>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -189,6 +240,30 @@ export function InterviewLobby({
                 <h3 className="mb-3 text-sm font-medium text-foreground">1. Device Check</h3>
                 
                 <div className="space-y-3">
+                  
+                  {/* Camera */}
+                  <div className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-full ${cameraStatus === 'ok' ? 'bg-emerald-500/20 text-emerald-500' : cameraStatus === 'error' ? 'bg-red-500/20 text-red-500' : 'bg-secondary text-muted-foreground animate-pulse'}`}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M23 7l-7 5 7 5V7z" />
+                          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Camera</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {cameraStatus === 'ok' ? 'Permission granted' : cameraStatus === 'error' ? 'Permission denied' : 'Checking...'}
+                        </p>
+                      </div>
+                    </div>
+                    {cameraStatus === 'ok' && camStream && (
+                      <div className="mt-2 overflow-hidden rounded-md bg-black/10 aspect-video w-full flex items-center justify-center border border-border/50">
+                        <LobbyVideoPreview stream={camStream} />
+                      </div>
+                    )}
+                  </div>
+
                   {/* Microphone */}
                   <div className="flex items-center justify-between rounded-lg border border-border bg-background p-3">
                     <div className="flex items-center gap-3">
@@ -297,50 +372,53 @@ export function InterviewLobby({
               </div>
             </div>
 
-            {/* Structure Section */}
-            <div>
-              <h3 className="mb-3 text-sm font-medium text-foreground">Interview Structure</h3>
-              <div className="rounded-lg border border-border bg-background p-4">
-                <p className="mb-4 text-xs text-muted-foreground">
-                  Your {duration}-minute interview will follow this format:
-                </p>
-                <div className="space-y-4">
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <div className="h-full w-px bg-border my-1" />
-                    </div>
-                    <div className="pb-2">
-                      <p className="text-sm font-medium text-foreground">1. Introduction</p>
+            {/* Right Column */}
+            <div className="space-y-6">
+              {/* Interview Style Selection */}
+              <div>
+                <h3 className="mb-3 text-sm font-medium text-foreground">3. Interview Style</h3>
+                <select
+                  value={interviewStyle}
+                  onChange={(e) => setInterviewStyle(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="Standard">Standard</option>
+                  <option value="Product-company (DSA)">Product-company (DSA)</option>
+                  <option value="Startup (Practical/System)">Startup (Practical/System)</option>
+                  <option value="Service-company (Fundamentals)">Service-company (Fundamentals)</option>
+                </select>
+              </div>
+              
+              {/* Structure Section */}
+              <div>
+                <h3 className="mb-3 text-sm font-medium text-foreground">Interview Structure</h3>
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <p className="mb-4 text-sm text-muted-foreground">
+                    Your {duration}-minute interview will follow this format:
+                  </p>
+                  
+                  <div className="relative border-l border-border ml-2 pl-4 space-y-6">
+                    <div className="relative">
+                      <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-blue-500 ring-4 ring-background" />
+                      <h4 className="text-sm font-medium text-foreground">1. Introduction</h4>
                       <p className="text-xs text-muted-foreground">~{introTime} min • Clarify the problem</p>
                     </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2 w-2 rounded-full bg-purple-500" />
-                      <div className="h-full w-px bg-border my-1" />
-                    </div>
-                    <div className="pb-2">
-                      <p className="text-sm font-medium text-foreground">2. Problem Solving</p>
+                    
+                    <div className="relative">
+                      <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-purple-500 ring-4 ring-background" />
+                      <h4 className="text-sm font-medium text-foreground">2. Problem Solving</h4>
                       <p className="text-xs text-muted-foreground">~{problemTime} min • Discuss approach & complexity</p>
                     </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2 w-2 rounded-full bg-orange-500" />
-                      <div className="h-full w-px bg-border my-1" />
-                    </div>
-                    <div className="pb-2">
-                      <p className="text-sm font-medium text-foreground">3. Coding & Testing</p>
+                    
+                    <div className="relative">
+                      <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-background" />
+                      <h4 className="text-sm font-medium text-foreground">3. Coding & Testing</h4>
                       <p className="text-xs text-muted-foreground">~{codeTime} min • Implement and run tests</p>
                     </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">4. Wrap-up</p>
+
+                    <div className="relative">
+                      <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-4 ring-background" />
+                      <h4 className="text-sm font-medium text-foreground">4. Wrap-up</h4>
                       <p className="text-xs text-muted-foreground">~{wrapTime} min • Final optimization thoughts</p>
                     </div>
                   </div>
@@ -356,7 +434,7 @@ export function InterviewLobby({
             Make sure you&apos;re in a quiet environment.
           </p>
           <button
-            onClick={onReady}
+            onClick={() => onReady(interviewStyle)}
             disabled={mode === "voice" && micStatus === "error"}
             className="rounded-md bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow transition-colors hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
           >

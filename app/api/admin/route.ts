@@ -79,7 +79,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { provider, model, geminiApiKey } = body;
+    const { provider, model, reportProvider, reportModel, geminiApiKey, zaiApiKey } = body;
 
     if (provider) {
       await prisma.systemSetting.upsert({
@@ -96,12 +96,52 @@ export async function POST(req: Request) {
         create: { key: "DEFAULT_AI_MODEL", value: model },
       });
     }
+    
+    if (reportProvider) {
+      await prisma.systemSetting.upsert({
+        where: { key: "REPORT_AI_PROVIDER" },
+        update: { value: reportProvider },
+        create: { key: "REPORT_AI_PROVIDER", value: reportProvider },
+      });
+    }
+
+    if (reportModel) {
+      await prisma.systemSetting.upsert({
+        where: { key: "REPORT_AI_MODEL" },
+        update: { value: reportModel },
+        create: { key: "REPORT_AI_MODEL", value: reportModel },
+      });
+    }
 
     if (geminiApiKey !== undefined) {
       await prisma.systemSetting.upsert({
         where: { key: "GEMINI_API_KEY" },
         update: { value: geminiApiKey },
         create: { key: "GEMINI_API_KEY", value: geminiApiKey },
+      });
+    }
+
+    if (zaiApiKey !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "ZAI_API_KEY" },
+        update: { value: zaiApiKey },
+        create: { key: "ZAI_API_KEY", value: zaiApiKey },
+      });
+    }
+
+    if (body.openrouterApiKey !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "OPENROUTER_API_KEY" },
+        update: { value: body.openrouterApiKey },
+        create: { key: "OPENROUTER_API_KEY", value: body.openrouterApiKey },
+      });
+    }
+
+    if (body.deepseekApiKey !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "DEEPSEEK_API_KEY" },
+        update: { value: body.deepseekApiKey },
+        create: { key: "DEEPSEEK_API_KEY", value: body.deepseekApiKey },
       });
     }
 
@@ -120,19 +160,25 @@ export async function DELETE(req: Request) {
   try {
     const url = new URL(req.url);
     const userId = url.searchParams.get("userId");
+    const interviewId = url.searchParams.get("interviewId");
 
-    if (!userId) {
-      return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    if (interviewId) {
+      await prisma.interview.delete({
+        where: { id: interviewId },
+      });
+      return NextResponse.json({ success: true });
     }
 
-    // Since schema has onDelete: Cascade, this will delete everything associated with the user
-    await prisma.user.delete({
-      where: { id: userId },
-    });
+    if (userId) {
+      await prisma.user.delete({
+        where: { id: userId },
+      });
+      return NextResponse.json({ success: true });
+    }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ error: "userId or interviewId parameter is required" }, { status: 400 });
   } catch (error) {
     console.error("Admin DELETE Error:", error);
-    return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to perform deletion" }, { status: 500 });
   }
 }

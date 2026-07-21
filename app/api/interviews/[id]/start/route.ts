@@ -44,22 +44,37 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
 
-    // Get voiceId from request body if available
+    // Get voiceId and interviewStyle from request body if available
     let voiceId: string | undefined = undefined;
+    let interviewStyle: string = "Standard";
     try {
       const body = await req.json();
       voiceId = body.voiceId;
+      if (body.interviewStyle) {
+        interviewStyle = body.interviewStyle;
+      }
     } catch {
       // Empty or invalid JSON body is fine (e.g. initial request doesn't send voiceId)
     }
 
-    // Update interview status
+    // Update interview status and style
     await prisma.interview.update({
       where: { id },
       data: {
         status: "in_progress",
         startedAt: new Date(),
+        style: interviewStyle,
       },
+    });
+
+    // Log the start event
+    await prisma.eventLog.create({
+      data: {
+        eventType: "INTERVIEW_STARTED",
+        interviewId: id,
+        userId: user.id,
+        details: { style: interviewStyle, duration: interview.duration }
+      }
     });
 
     const isFemale = voiceId && (voiceId.startsWith("af_") || voiceId.startsWith("if_") || voiceId.startsWith("bf_"));
@@ -71,7 +86,7 @@ export async function POST(req: Request, context: RouteContext) {
       problemDescription: interview.problemDescription,
       language: interview.language,
       difficulty: interview.difficulty,
-      style: (interview as any).style,
+      style: interviewStyle,
       duration: interview.duration,
       voiceId,
     });

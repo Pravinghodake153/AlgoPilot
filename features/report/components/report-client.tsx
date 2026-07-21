@@ -107,6 +107,7 @@ interface ReportClientProps {
     language: string;
     duration: number;
     code: string;
+    style: string;
     createdAt: string;
   };
   report: ReportData | null;
@@ -148,21 +149,24 @@ export function ReportClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function generateReport() {
+  async function generateReport(force = false) {
     setIsGenerating(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/interviews/${interview.id}/report`, {
+      const res = await fetch(`/api/interviews/${interview.id}/report${force ? "?force=true" : ""}`, {
         method: "POST",
       });
 
-      if (!res.ok) throw new Error("Failed to generate report");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to generate report");
+      }
 
       const data = await res.json();
       setReport(data.report);
-    } catch {
-      setError("Failed to generate report. Please try again.");
+    } catch (err: any) {
+      setError(err.message || "Failed to generate report. Please try again.");
     } finally {
       setIsGenerating(false);
     }
@@ -234,12 +238,12 @@ export function ReportClient({
       {/* Error state */}
       {error && (
         <div className="mt-10 flex flex-col items-center gap-3 py-16">
-          <p className="text-sm text-red-400">{error}</p>
+          <p className="text-sm text-red-400 font-medium">{error}</p>
           <button
-            onClick={generateReport}
+            onClick={() => generateReport(true)}
             className="h-9 rounded-md bg-secondary px-4 text-sm font-medium text-foreground hover:bg-secondary/80 cursor-pointer"
           >
-            Retry
+            Retry Generation
           </button>
         </div>
       )}
@@ -248,8 +252,30 @@ export function ReportClient({
       {report && (
         <div className="mt-8 flex flex-col gap-8">
           
+          {/* Failure Alert Banner */}
+          {report.weaknesses?.some(w => w.startsWith("Report generation error:")) && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-200">
+              <div className="flex items-start gap-3">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-red-400 mt-0.5">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <div className="flex flex-col gap-1">
+                  <h3 className="font-semibold text-sm text-red-300">Report Generation Failed</h3>
+                  <p className="text-xs text-red-200/90 font-mono bg-black/30 p-2 rounded border border-red-500/20 break-all">
+                    {report.weaknesses.find(w => w.startsWith("Report generation error:"))}
+                  </p>
+                  <p className="text-xs text-red-300/80 mt-1">
+                    Please check your AI Provider / API Key settings in the Admin Dashboard, then click the <strong>Regenerate (⟳)</strong> button at the bottom of this page.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Advanced Metrics / Metadata */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Status</span>
               <div className="flex items-center gap-2">
@@ -277,6 +303,11 @@ export function ReportClient({
             <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Estimated Level</span>
               <span className="font-semibold text-primary">{report.estimatedLevel || "Unknown"}</span>
+            </div>
+
+            <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Interview Style</span>
+              <span className="font-semibold text-primary capitalize">{interview.style || "Standard"}</span>
             </div>
           </div>
 
@@ -518,6 +549,17 @@ export function ReportClient({
             >
               Start New Interview
             </Link>
+            <button
+              onClick={() => generateReport(true)}
+              disabled={isGenerating}
+              title="Regenerate Report"
+              className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors hover:bg-secondary/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 cursor-pointer"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isGenerating ? "animate-spin" : ""}>
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </button>
           </div>
         </div>
       )}
