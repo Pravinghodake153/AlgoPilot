@@ -144,8 +144,7 @@ export function VoiceInput() {
       resetTimeout();
 
       try {
-        // 1. Initialize chat and get conversation history
-        const initRes = await fetch(`/api/interviews/${interviewId}/chat-init`, {
+        const response = await fetch(`/api/interviews/${interviewId}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -157,21 +156,7 @@ export function VoiceInput() {
           }),
         });
 
-        if (!initRes.ok) throw new Error("Failed to initialize chat");
-
-        const { conversationHistory } = await initRes.json();
-
-        // 2. Stream AI response from Edge route
-        const response = await fetch(`/api/interviews/${interviewId}/chat-stream`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            conversationHistory,
-          }),
-        });
-
-        if (!response.ok) throw new Error("Chat stream failed");
+        if (!response.ok) throw new Error("Chat failed");
 
         // Create a placeholder message for streaming
         const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -209,27 +194,13 @@ export function VoiceInput() {
             }
           },
           // onDone: finalize message and speak any remaining text
-          async (fullText) => {
+          (fullText) => {
             clearTimeout(timeoutId);
             useInterviewStore.setState((state) => ({
               messages: state.messages.map((m) =>
                 m.id === msgId ? { ...m, content: fullText } : m
               ),
             }));
-
-            // Save AI message to DB
-            try {
-              await fetch(`/api/interviews/${interviewId}/messages`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  role: "assistant",
-                  content: fullText,
-                }),
-              });
-            } catch (e) {
-              console.error("Failed to save AI message:", e);
-            }
 
             // Flush remaining buffered text as the final sentence
             if (!isSpeakerMuted && sentenceBufferRef.current.trim()) {

@@ -95,8 +95,7 @@ export function TextInput() {
     resetTimeout();
 
     try {
-      // 1. Initialize chat and get conversation history
-      const initRes = await fetch(`/api/interviews/${interviewId}/chat-init`, {
+      const response = await fetch(`/api/interviews/${interviewId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -108,24 +107,8 @@ export function TextInput() {
         }),
       });
 
-      if (!initRes.ok) {
-        throw new Error("Failed to initialize chat");
-      }
-
-      const { conversationHistory } = await initRes.json();
-
-      // 2. Stream AI response from Edge route
-      const response = await fetch(`/api/interviews/${interviewId}/chat-stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          conversationHistory,
-        }),
-      });
-
       if (!response.ok) {
-        throw new Error("Failed to get stream response");
+        throw new Error("Failed to get response");
       }
 
       // Create a placeholder message for streaming
@@ -159,7 +142,7 @@ export function TextInput() {
           }));
         },
         // onDone: finalize
-        async (fullText) => {
+        (fullText) => {
           clearTimeout(timeoutId);
           // Ensure the message has the complete text
           useInterviewStore.setState((state) => ({
@@ -170,20 +153,6 @@ export function TextInput() {
           streamingMsgIdRef.current = null;
           setLastExecResult(null);
           setAIState("idle");
-
-          // Save AI message to DB
-          try {
-            await fetch(`/api/interviews/${interviewId}/messages`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                role: "assistant",
-                content: fullText,
-              }),
-            });
-          } catch (e) {
-            console.error("Failed to save AI message:", e);
-          }
         },
         // onError
         (err) => {
