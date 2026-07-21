@@ -87,6 +87,7 @@ interface InterviewState {
   isSpeakerMuted: boolean;
   selectedVoiceId: string | null;
   sttLanguage: string;
+  voiceInputMode: "auto" | "manual";
 
   // Streaming lock — prevents new requests while one is active
   isStreaming: boolean;
@@ -127,6 +128,7 @@ interface InterviewState {
   toggleSpeaker: () => void;
   setSelectedVoiceId: (id: string | null) => void;
   setSttLanguage: (lang: string) => void;
+  setVoiceInputMode: (mode: "auto" | "manual") => void;
   setIsStreaming: (streaming: boolean) => void;
   setLayoutMode: (mode: LayoutMode) => void;
   setShowProblem: (show: boolean) => void;
@@ -160,6 +162,7 @@ const initialState = {
   isSpeakerMuted: false,
   selectedVoiceId: null as string | null,
   sttLanguage: "en-US",
+  voiceInputMode: "manual" as const,
   isStreaming: false,
   layoutMode: layoutPrefs.layoutMode,
   showProblem: layoutPrefs.showProblem,
@@ -226,6 +229,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   setSelectedVoiceId: (selectedVoiceId) => set({ selectedVoiceId }),
 
   setSttLanguage: (sttLanguage) => set({ sttLanguage }),
+
+  setVoiceInputMode: (voiceInputMode) => set({ voiceInputMode }),
 
   setIsStreaming: (isStreaming) => set({ isStreaming }),
 

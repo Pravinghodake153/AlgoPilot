@@ -12,6 +12,11 @@ interface UseWebSpeechOptions {
 /**
  * Web Speech API hook for speech-to-text recognition.
  * Uses browser-native SpeechRecognition API ($0 cost).
+ *
+ * IMPORTANT: This hook uses a session-based architecture to prevent
+ * race conditions between start/stop/restart cycles. Each call to
+ * startListening() creates a new session ID, and onend only restarts
+ * if the session is still active.
  */
 export function useWebSpeech({
   onResult,
@@ -20,12 +25,17 @@ export function useWebSpeech({
   language = "en-US",
 }: UseWebSpeechOptions) {
   const [isListening, setIsListening] = useState(false);
-  const isSupported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const shouldBeListeningRef = useRef(false);
-  const isPausedRef = useRef(false);
+  const isSupported =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
 
-  // Store callbacks in refs to avoid stale closures without causing re-renders/re-inits
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // Session counter: incremented on every start, checked in onend to prevent stale restarts
+  const sessionIdRef = useRef(0);
+  // Set to true when we explicitly want to stop — checked synchronously in onend
+  const stoppedRef = useRef(true);
+
+  // Store callbacks in refs to avoid stale closures
   const onResultRef = useRef(onResult);
   const onErrorRef = useRef(onError);
 
@@ -34,23 +44,52 @@ export function useWebSpeech({
     onErrorRef.current = onError;
   }, [onResult, onError]);
 
-  // Initialize recognition
-  const initRecognition = useCallback(() => {
-    if (typeof window === "undefined") return null;
+  /**
+   * Safely abort and discard the current recognition instance.
+   * Sets recognitionRef to null so no stale reference can restart.
+   */
+  const destroyRecognition = useCallback(() => {
+    const rec = recognitionRef.current;
+    if (rec) {
+      // Remove event handlers to prevent any further callbacks
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onend = null;
+      try {
+        rec.abort();
+      } catch {
+        /* already stopped */
+      }
+      recognitionRef.current = null;
+    }
+  }, []);
 
+  const startListening = useCallback(() => {
+    if (!isSupported) {
+      onErrorRef.current?.("Speech recognition not supported in this browser");
+      return;
+    }
+
+    // Destroy any existing instance first
+    destroyRecognition();
+
+    // Create fresh recognition instance
     const SpeechRecognitionAPI =
       window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognitionAPI) return null;
+    if (!SpeechRecognitionAPI) return;
 
     const recognition = new SpeechRecognitionAPI();
     recognition.continuous = continuous;
     recognition.interimResults = false;
     recognition.lang = language;
 
+    // Capture session ID for this start cycle
+    const mySession = ++sessionIdRef.current;
+    stoppedRef.current = false;
+
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      // If manually muted/paused, ignore result
-      if (isPausedRef.current) return;
+      // If stopped since we started, ignore
+      if (stoppedRef.current) return;
 
       const last = event.results[event.results.length - 1];
       if (last.isFinal) {
@@ -63,51 +102,32 @@ export function useWebSpeech({
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("Speech recognition error:", event.error);
+      // Don't report aborted (we cause this) or no-speech (normal silence)
       if (event.error !== "aborted" && event.error !== "no-speech") {
         onErrorRef.current?.(event.error);
-      }
-      // Only mark as not listening if we shouldn't be
-      if (!shouldBeListeningRef.current) {
-        setIsListening(false);
       }
     };
 
     recognition.onend = () => {
-      // Auto-restart if we should still be listening AND we are not paused
-      if (shouldBeListeningRef.current && !isPausedRef.current) {
-        try {
-          recognition.start();
-        } catch {
-          setIsListening(false);
-          shouldBeListeningRef.current = false;
-        }
-      } else {
+      // CRITICAL: Check both the stopped flag AND session ID.
+      // If either doesn't match, do NOT restart — it means stopListening
+      // was called or a newer session superseded this one.
+      if (stoppedRef.current || sessionIdRef.current !== mySession) {
         setIsListening(false);
+        return;
+      }
+
+      // Auto-restart for continuous listening
+      try {
+        recognition.start();
+      } catch {
+        // start() can throw if the recognition is in a bad state
+        setIsListening(false);
+        stoppedRef.current = true;
       }
     };
 
-    return recognition;
-  }, [continuous, language]);
-
-  const startListening = useCallback(() => {
-    if (!isSupported) {
-      onError?.("Speech recognition not supported in this browser");
-      return;
-    }
-
-    // Stop any existing recognition
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch { /* ignore */ }
-    }
-
-    const recognition = initRecognition();
-    if (!recognition) return;
-
     recognitionRef.current = recognition;
-    shouldBeListeningRef.current = true;
-    isPausedRef.current = false;
 
     try {
       recognition.start();
@@ -115,72 +135,34 @@ export function useWebSpeech({
     } catch (error) {
       console.error("Failed to start speech recognition:", error);
       setIsListening(false);
-      shouldBeListeningRef.current = false;
+      stoppedRef.current = true;
     }
-  }, [isSupported, initRecognition, onError]);
+  }, [isSupported, continuous, language, destroyRecognition]);
 
   const stopListening = useCallback(() => {
-    shouldBeListeningRef.current = false;
-    isPausedRef.current = false;
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch { /* ignore */ }
-      recognitionRef.current = null;
-    }
+    // Set stopped flag FIRST — this prevents onend from restarting
+    stoppedRef.current = true;
+    // Increment session to invalidate any pending onend callbacks
+    sessionIdRef.current++;
+    destroyRecognition();
     setIsListening(false);
-  }, []);
+  }, [destroyRecognition]);
 
-  /**
-   * Temporarily pause recognition (e.g. while AI speaks to avoid feedback).
-   * Call resumeListening() to restart it.
-   */
-  const pauseListening = useCallback(() => {
-    isPausedRef.current = true;
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch { /* ignore */ }
-    }
-    setIsListening(false);
-  }, []);
-
-  /**
-   * Resume recognition after a pause.
-   */
-  const resumeListening = useCallback(() => {
-    if (!shouldBeListeningRef.current || !isSupported) return;
-
-    isPausedRef.current = false;
-
-    // Stop existing first
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch { /* ignore */ }
-    }
-
-    const recognition = initRecognition();
-    if (!recognition) return;
-
-    recognitionRef.current = recognition;
-
-    try {
-      recognition.start();
-      setIsListening(true);
-    } catch {
-      // Will auto-retry via onend
-    }
-  }, [isSupported, initRecognition]);
-
-  // Cleanup on unmount
+  // Cleanup on unmount — always release the microphone
   useEffect(() => {
     return () => {
-      shouldBeListeningRef.current = false;
-      if (recognitionRef.current) {
+      stoppedRef.current = true;
+      sessionIdRef.current++;
+      const rec = recognitionRef.current;
+      if (rec) {
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
         try {
-          recognitionRef.current.abort();
-        } catch { /* ignore */ }
+          rec.abort();
+        } catch {
+          /* ignore */
+        }
         recognitionRef.current = null;
       }
     };
@@ -191,8 +173,6 @@ export function useWebSpeech({
     isSupported,
     startListening,
     stopListening,
-    pauseListening,
-    resumeListening,
   };
 }
 
@@ -218,15 +198,45 @@ export function getAvailableVoices(): VoiceOption[] {
   const voices = window.speechSynthesis.getVoices();
   if (voices.length === 0) return getDefaultVoiceList();
 
-  const englishVoices = voices.filter(
-    (v) => v.lang.startsWith("en")
-  );
+  const englishVoices = voices.filter((v) => v.lang.startsWith("en"));
 
   if (englishVoices.length === 0) return getDefaultVoiceList();
 
   // Heuristic to guess gender from voice name
-  const femaleKeywords = ["female", "woman", "samantha", "karen", "moira", "tessa", "fiona", "victoria", "zira", "hazel", "susan", "linda", "jenny", "aria", "sara", "emma"];
-  const maleKeywords = ["male", "man", "daniel", "alex", "fred", "tom", "james", "david", "mark", "guy", "thomas", "oliver", "george", "ryan"];
+  const femaleKeywords = [
+    "female",
+    "woman",
+    "samantha",
+    "karen",
+    "moira",
+    "tessa",
+    "fiona",
+    "victoria",
+    "zira",
+    "hazel",
+    "susan",
+    "linda",
+    "jenny",
+    "aria",
+    "sara",
+    "emma",
+  ];
+  const maleKeywords = [
+    "male",
+    "man",
+    "daniel",
+    "alex",
+    "fred",
+    "tom",
+    "james",
+    "david",
+    "mark",
+    "guy",
+    "thomas",
+    "oliver",
+    "george",
+    "ryan",
+  ];
 
   const categorized: VoiceOption[] = englishVoices.map((v) => {
     const nameLower = v.name.toLowerCase();
@@ -267,11 +277,36 @@ export function getAvailableVoices(): VoiceOption[] {
 
 function getDefaultVoiceList(): VoiceOption[] {
   return [
-    { id: "default-male-1", name: "Default Male", label: "Alex (Default)", gender: "male" },
-    { id: "default-male-2", name: "Default Male 2", label: "Daniel", gender: "male" },
-    { id: "default-male-3", name: "Default Male 3", label: "Thomas", gender: "male" },
-    { id: "default-female-1", name: "Default Female", label: "Samantha", gender: "female" },
-    { id: "default-female-2", name: "Default Female 2", label: "Karen", gender: "female" },
+    {
+      id: "default-male-1",
+      name: "Default Male",
+      label: "Alex (Default)",
+      gender: "male",
+    },
+    {
+      id: "default-male-2",
+      name: "Default Male 2",
+      label: "Daniel",
+      gender: "male",
+    },
+    {
+      id: "default-male-3",
+      name: "Default Male 3",
+      label: "Thomas",
+      gender: "male",
+    },
+    {
+      id: "default-female-1",
+      name: "Default Female",
+      label: "Samantha",
+      gender: "female",
+    },
+    {
+      id: "default-female-2",
+      name: "Default Female 2",
+      label: "Karen",
+      gender: "female",
+    },
   ];
 }
 

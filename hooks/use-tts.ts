@@ -1,27 +1,71 @@
 "use client";
 
 import { useRef, useCallback } from "react";
-import { speak, stopSpeaking } from "@/hooks/use-web-speech";
 import { useInterviewStore } from "@/features/interview/store/interview-store";
 
 /**
- * Centralized Text-to-Speech hook.
+ * Centralized Text-to-Speech hook using OpenRouter Backend TTS.
  * Manages sentence-level buffering and a speaking queue.
- * Works regardless of mode (text or voice) — driven by isSpeakerMuted state.
- *
- * Lives at the parent level so it never unmounts during mode switches.
+ * Fetches audio blobs from our backend API and plays them sequentially.
  */
+
+/**
+ * Utility to speak a single string via backend TTS.
+ * Useful for one-off messages (e.g. welcome message).
+ */
+export async function speakBackend(text: string, interviewId: string, onEnd?: () => void, onError?: () => void) {
+  try {
+    const res = await fetch(`/api/interviews/${interviewId}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error("TTS failed");
+    
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (onEnd) onEnd();
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (onError) onError();
+    };
+    
+    await audio.play();
+    return audio;
+  } catch (e) {
+    console.error(e);
+    if (onError) onError();
+    return null;
+  }
+}
+
 export function useTTS() {
   const sentenceBufferRef = useRef("");
   const ttsQueueRef = useRef<string[]>([]);
   const isSpeakingRef = useRef(false);
   const isDoneStreamingRef = useRef(false);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  /**
+   * Stop currently playing audio.
+   */
+  const stopSpeaking = useCallback(() => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.src = "";
+      currentAudioRef.current = null;
+    }
+  }, []);
 
   /**
    * Speak sentences from the queue one at a time.
-   * When the queue empties after streaming is done, transitions aiState.
    */
-  const speakNextInQueue = useCallback(function processNext() {
+  const speakNextInQueue = useCallback(async function processNext() {
     if (isSpeakingRef.current || ttsQueueRef.current.length === 0) {
       // Queue is empty — if streaming is done, transition state
       if (
@@ -43,25 +87,50 @@ export function useTTS() {
     const sentence = ttsQueueRef.current.shift()!;
     isSpeakingRef.current = true;
 
-    const voiceName = useInterviewStore.getState().selectedVoiceId;
+    const store = useInterviewStore.getState();
+    const interviewId = store.interviewId;
 
-    speak(sentence, {
-      rate: 1.0,
-      voiceName: voiceName?.startsWith("default-") ? null : voiceName,
-      onEnd: () => {
+    try {
+      const res = await fetch(`/api/interviews/${interviewId}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: sentence }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`TTS failed with status ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudioRef.current = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
         isSpeakingRef.current = false;
+        currentAudioRef.current = null;
         processNext();
-      },
-      onError: () => {
+      };
+
+      audio.onerror = () => {
+        console.error("Audio playback error");
+        URL.revokeObjectURL(url);
         isSpeakingRef.current = false;
+        currentAudioRef.current = null;
         processNext();
-      },
-    });
+      };
+
+      await audio.play();
+    } catch (e) {
+      console.error("TTS fetch/play error:", e);
+      isSpeakingRef.current = false;
+      processNext();
+    }
   }, []);
 
   /**
    * Buffer a token for TTS. Extracts complete sentences and queues them.
-   * Call this on every non-reasoning token from the stream.
    */
   const bufferToken = useCallback(
     (token: string) => {
@@ -70,14 +139,15 @@ export function useTTS() {
 
       sentenceBufferRef.current += token;
 
-      // Extract complete sentences (ending with . ? or !)
+      // Extract complete sentences (ending with . ? or ! or newline)
       const buf = sentenceBufferRef.current;
-      const sentenceRegex = /[^.!?]*[.!?]+/g;
+      const sentenceRegex = /[^.!?\n]*[.!?\n]+/g;
       let match;
       let lastIndex = 0;
 
       while ((match = sentenceRegex.exec(buf)) !== null) {
         const sentence = match[0].trim();
+        // Ignore tiny fragments
         if (sentence.length > 2) {
           ttsQueueRef.current.push(sentence);
         }
@@ -95,13 +165,14 @@ export function useTTS() {
 
   /**
    * Flush any remaining text in the buffer and mark streaming as done.
-   * Called when the SSE stream completes.
    */
   const flushAndFinish = useCallback(() => {
     const isSpeakerMuted = useInterviewStore.getState().isSpeakerMuted;
 
-    if (!isSpeakerMuted && sentenceBufferRef.current.trim()) {
+    if (!isSpeakerMuted && sentenceBufferRef.current.trim().length > 2) {
       ttsQueueRef.current.push(sentenceBufferRef.current.trim());
+      sentenceBufferRef.current = "";
+    } else {
       sentenceBufferRef.current = "";
     }
 
@@ -130,7 +201,7 @@ export function useTTS() {
     ttsQueueRef.current = [];
     isSpeakingRef.current = false;
     isDoneStreamingRef.current = false;
-  }, []);
+  }, [stopSpeaking]);
 
   /**
    * Stop all TTS and clear queue. Called on unmount or manual stop.
@@ -141,7 +212,7 @@ export function useTTS() {
     ttsQueueRef.current = [];
     isSpeakingRef.current = false;
     isDoneStreamingRef.current = false;
-  }, []);
+  }, [stopSpeaking]);
 
   return {
     bufferToken,

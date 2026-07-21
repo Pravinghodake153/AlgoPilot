@@ -18,7 +18,7 @@ import { useChatStream } from "@/hooks/use-chat-stream";
 import { useTTS } from "@/hooks/use-tts";
 
 import { useRouter } from "next/navigation";
-import { speak } from "@/hooks/use-web-speech";
+import { speakBackend } from "@/hooks/use-tts";
 
 interface InterviewClientProps {
   interview: {
@@ -178,26 +178,20 @@ export function InterviewClient({
             const currentStore = useInterviewStore.getState();
             if (!currentStore.isSpeakerMuted) {
               currentStore.setAIState("speaking");
-              const voiceName = currentStore.selectedVoiceId;
-              speak(data.message, {
-                rate: 1.0,
-                voiceName: voiceName?.startsWith("default-") ? null : voiceName,
-                onEnd: () => {
-                  const s = useInterviewStore.getState();
-                  if (s.mode === "voice") {
-                    s.setAIState("listening");
-                  } else {
-                    s.setAIState("idle");
-                  }
-                },
-                onError: () => {
-                  const s = useInterviewStore.getState();
-                  if (s.mode === "voice") {
-                    s.setAIState("listening");
-                  } else {
-                    s.setAIState("idle");
-                  }
-                },
+              speakBackend(data.message, interview.id, () => {
+                const s = useInterviewStore.getState();
+                if (s.mode === "voice") {
+                  s.setAIState("listening");
+                } else {
+                  s.setAIState("idle");
+                }
+              }, () => {
+                const s = useInterviewStore.getState();
+                if (s.mode === "voice") {
+                  s.setAIState("listening");
+                } else {
+                  s.setAIState("idle");
+                }
               });
             }
           }
@@ -209,24 +203,20 @@ export function InterviewClient({
           const currentStore = useInterviewStore.getState();
           if (!currentStore.isSpeakerMuted) {
             currentStore.setAIState("speaking");
-            speak(fallbackMsg, {
-              rate: 1.0,
-              onEnd: () => {
-                const s = useInterviewStore.getState();
-                if (s.mode === "voice") {
-                  s.setAIState("listening");
-                } else {
-                  s.setAIState("idle");
-                }
-              },
-              onError: () => {
-                const s = useInterviewStore.getState();
-                if (s.mode === "voice") {
-                  s.setAIState("listening");
-                } else {
-                  s.setAIState("idle");
-                }
-              },
+            speakBackend(fallbackMsg, interview.id, () => {
+              const s = useInterviewStore.getState();
+              if (s.mode === "voice") {
+                s.setAIState("listening");
+              } else {
+                s.setAIState("idle");
+              }
+            }, () => {
+              const s = useInterviewStore.getState();
+              if (s.mode === "voice") {
+                s.setAIState("listening");
+              } else {
+                s.setAIState("idle");
+              }
             });
           }
         }
