@@ -206,11 +206,13 @@ export function VoiceInput() {
             if (!isSpeakerMuted && sentenceBufferRef.current.trim()) {
               ttsQueueRef.current.push(sentenceBufferRef.current.trim());
               sentenceBufferRef.current = "";
+            }
+            
+            if (!isSpeakerMuted && ttsQueueRef.current.length > 0) {
               speakNextInQueue();
-            } else if (isSpeakerMuted) {
+            } else if (!isSpeakingRef.current) {
               setAIState("listening");
             }
-            // If TTS is active, speakNextInQueue's onEnd will handle the transition
           },
           // onError
           (err) => {
@@ -265,7 +267,7 @@ export function VoiceInput() {
     onResult: handleSpeechResult,
     onError: (error) => console.error("Speech error:", error),
     continuous: true,
-    language: "en-IN",
+    language: "en-US",
   });
 
   // Auto-start listening on mount if not muted
