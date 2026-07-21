@@ -44,6 +44,15 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
 
+    // Get voiceId from request body if available
+    let voiceId: string | undefined = undefined;
+    try {
+      const body = await req.json();
+      voiceId = body.voiceId;
+    } catch {
+      // Empty or invalid JSON body is fine (e.g. initial request doesn't send voiceId)
+    }
+
     // Update interview status
     await prisma.interview.update({
       where: { id },
@@ -53,13 +62,18 @@ export async function POST(req: Request, context: RouteContext) {
       },
     });
 
+    const isFemale = voiceId && (voiceId.startsWith("af_") || voiceId.startsWith("if_") || voiceId.startsWith("bf_"));
+    const interviewerName = isFemale ? "Nova" : "Alex";
+
     // Generate AI's opening message
     const systemPrompt = buildInterviewerSystemPrompt({
       problemTitle: interview.problemTitle,
       problemDescription: interview.problemDescription,
       language: interview.language,
       difficulty: interview.difficulty,
+      style: (interview as any).style,
       duration: interview.duration,
+      voiceId,
     });
 
     let openingMessage: string;
@@ -77,7 +91,7 @@ export async function POST(req: Request, context: RouteContext) {
       );
     } catch {
       // Fallback if DeepSeek is unavailable
-      openingMessage = `Hi, I'm Alex, and I'll be conducting your technical interview today. We have ${interview.duration} minutes to work through this ${interview.difficulty} problem. Take a moment to read through it, and when you're ready, walk me through your initial thoughts on how you'd approach it.`;
+      openingMessage = `Hi, I'm ${interviewerName}, and I'll be conducting your technical interview today. We have ${interview.duration} minutes to work through this ${interview.difficulty} problem. Take a moment to read through it, and when you're ready, walk me through your initial thoughts on how you'd approach it.`;
     }
 
     // Save the opening message

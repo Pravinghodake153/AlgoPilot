@@ -15,10 +15,11 @@ import { useInterviewStore } from "@/features/interview/store/interview-store";
  */
 export async function speakBackend(text: string, interviewId: string, onEnd?: () => void, onError?: () => void) {
   try {
+    const selectedVoiceId = useInterviewStore.getState().selectedVoiceId;
     const res = await fetch(`/api/interviews/${interviewId}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, voice: selectedVoiceId }),
     });
     if (!res.ok) throw new Error("TTS failed");
     
@@ -89,12 +90,13 @@ export function useTTS() {
 
     const store = useInterviewStore.getState();
     const interviewId = store.interviewId;
+    const selectedVoiceId = store.selectedVoiceId;
 
     try {
       const res = await fetch(`/api/interviews/${interviewId}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: sentence }),
+        body: JSON.stringify({ text: sentence, voice: selectedVoiceId }),
       });
 
       if (!res.ok) {
@@ -130,7 +132,7 @@ export function useTTS() {
   }, []);
 
   /**
-   * Buffer a token for TTS. Extracts complete sentences and queues them.
+   * Buffer a token for TTS. Groups text into larger paragraphs or chunks (>180 chars) for natural intonation.
    */
   const bufferToken = useCallback(
     (token: string) => {
@@ -138,27 +140,36 @@ export function useTTS() {
       if (isSpeakerMuted) return;
 
       sentenceBufferRef.current += token;
-
-      // Extract complete sentences (ending with . ? or ! or newline)
       const buf = sentenceBufferRef.current;
-      const sentenceRegex = /[^.!?\n]*[.!?\n]+/g;
-      let match;
-      let lastIndex = 0;
 
-      while ((match = sentenceRegex.exec(buf)) !== null) {
-        const sentence = match[0].trim();
-        // Ignore tiny fragments
-        if (sentence.length > 2) {
-          ttsQueueRef.current.push(sentence);
+      // Check if we have a paragraph separator (double newline or single newline if it marks a list item)
+      const paragraphIndex = buf.indexOf("\n\n");
+      
+      if (paragraphIndex !== -1) {
+        const paragraph = buf.slice(0, paragraphIndex).trim();
+        if (paragraph.length > 2) {
+          ttsQueueRef.current.push(paragraph);
         }
-        lastIndex = sentenceRegex.lastIndex;
+        sentenceBufferRef.current = buf.slice(paragraphIndex + 2);
+        speakNextInQueue();
+      } else if (buf.length > 200) {
+        // Find the last sentence boundary (. ! ?) in the buffer to avoid splitting mid-sentence
+        const lastSentenceBoundary = Math.max(
+          buf.lastIndexOf("."),
+          buf.lastIndexOf("?"),
+          buf.lastIndexOf("!")
+        );
+        
+        // Ensure we don't split on abbreviation or very early in the buffer
+        if (lastSentenceBoundary !== -1 && lastSentenceBoundary > 50) {
+          const chunk = buf.slice(0, lastSentenceBoundary + 1).trim();
+          if (chunk.length > 2) {
+            ttsQueueRef.current.push(chunk);
+          }
+          sentenceBufferRef.current = buf.slice(lastSentenceBoundary + 1);
+          speakNextInQueue();
+        }
       }
-
-      // Keep the remainder in the buffer
-      sentenceBufferRef.current = buf.slice(lastIndex);
-
-      // Start speaking if not already
-      speakNextInQueue();
     },
     [speakNextInQueue]
   );

@@ -35,6 +35,10 @@ export function AIAvatar() {
     return true;
   };
 
+  const selectedVoiceId = useInterviewStore((s) => s.selectedVoiceId);
+  const isFemale = selectedVoiceId && (selectedVoiceId.startsWith("af_") || selectedVoiceId.startsWith("if_") || selectedVoiceId.startsWith("bf_"));
+  const interviewerName = isFemale ? "Nova" : "Alex";
+
   const label = getLabel();
 
   return (
@@ -67,7 +71,7 @@ export function AIAvatar() {
       {/* Name + State */}
       <div className="flex flex-col">
         <span className="text-sm font-medium text-foreground leading-tight">
-          Alex
+          {interviewerName}
         </span>
         <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground leading-tight">
           {aiState === "thinking" ? (

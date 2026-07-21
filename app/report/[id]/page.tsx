@@ -13,19 +13,18 @@ interface ReportPageProps {
  */
 export default async function ReportPage({ params }: ReportPageProps) {
   const { userId: clerkId } = await auth();
-  if (!clerkId) redirect("/sign-in");
-
   const { id } = await params;
 
-  const user = await prisma.user.findUnique({
-    where: { clerkId },
-    select: { id: true },
-  });
-
-  if (!user) redirect("/dashboard");
+  let user = null;
+  if (clerkId) {
+    user = await prisma.user.findUnique({
+      where: { clerkId },
+      select: { id: true },
+    });
+  }
 
   const interview = await prisma.interview.findUnique({
-    where: { id, userId: user.id },
+    where: { id },
     include: {
       report: true,
       messages: {
@@ -35,10 +34,22 @@ export default async function ReportPage({ params }: ReportPageProps) {
     },
   });
 
-  if (!interview) redirect("/dashboard");
+  if (!interview) {
+    redirect("/");
+  }
+
+  const isOwner = user?.id === interview.userId;
+  const isPublic = interview.report?.isPublic ?? false;
+
+  if (!isOwner && !isPublic) {
+    // If not owner and not public, deny access
+    redirect("/");
+  }
 
   return (
     <ReportClient
+      isOwner={isOwner}
+      isPublic={isPublic}
       interview={{
         id: interview.id,
         problemTitle: interview.problemTitle,
@@ -63,6 +74,10 @@ export default async function ReportPage({ params }: ReportPageProps) {
               summary: interview.report.summary,
               nextSteps: (interview.report.nextSteps as string[]) || [],
               transcriptAnnotations: (interview.report.transcriptAnnotations as any[]) || [],
+              timeComplexity: interview.report.timeComplexity || undefined,
+              spaceComplexity: interview.report.spaceComplexity || undefined,
+              isSolved: interview.report.isSolved,
+              estimatedLevel: interview.report.estimatedLevel || undefined,
             }
           : null
       }

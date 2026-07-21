@@ -8,6 +8,8 @@ export type ProgrammingLanguage = "cpp" | "java" | "python" | "javascript" | "ty
 
 export type Difficulty = "easy" | "medium" | "hard";
 
+export type InterviewStyle = "standard" | "product" | "startup" | "service";
+
 export type InterviewDuration = 10 | 20 | 30 | 45;
 
 export type InterviewStatus =
@@ -27,6 +29,7 @@ export type AIState = "idle" | "listening" | "thinking" | "speaking";
 export interface InterviewSetup {
   language: ProgrammingLanguage;
   difficulty: Difficulty;
+  style: InterviewStyle;
   duration: InterviewDuration;
 }
 
@@ -56,6 +59,7 @@ export interface Interview {
   userId: string;
   language: ProgrammingLanguage;
   difficulty: Difficulty;
+  style: InterviewStyle;
   duration: InterviewDuration;
   status: InterviewStatus;
   problemTitle: string;
@@ -111,6 +115,11 @@ export interface InterviewReport {
   summary: string;
   nextSteps?: string[];
   transcriptAnnotations?: { messageIndex: number; tag: string; rationale: string }[];
+  timeComplexity?: string;
+  spaceComplexity?: string;
+  isSolved?: boolean;
+  estimatedLevel?: string;
+  isPublic?: boolean;
   createdAt: string;
 }
 
@@ -189,6 +198,15 @@ export const INTERVIEW_DURATIONS = [
   { value: 10, label: "10 min" },
   { value: 20, label: "20 min" },
   { value: 30, label: "30 min" },
+] as const;
+
+// ─── Interview Styles (for UI selectors) ─────
+
+export const INTERVIEW_STYLES = [
+  { value: "standard", label: "Standard" },
+  { value: "product", label: "Product-company (DSA)" },
+  { value: "startup", label: "Startup (Practical/System)" },
+  { value: "service", label: "Service-company (Fundamentals)" },
 ] as const;
 
 // ─── API Responses ───────────────────────────

@@ -133,6 +133,7 @@ export function useChatStream(options: UseChatStreamOptions) {
               code: store.code,
               executionResult: lastExecResultRef.current,
               timeRemainingSeconds: store.timeRemainingSeconds,
+              voiceId: store.selectedVoiceId,
             }),
           }
         );

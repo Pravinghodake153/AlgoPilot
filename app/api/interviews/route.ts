@@ -17,11 +17,12 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { language, difficulty, duration } = body;
+    const { language, difficulty, style = "standard", duration } = body;
 
     // Validate inputs
     const validLanguages = ["javascript", "typescript", "python", "java", "cpp", "go"];
     const validDifficulties = ["easy", "medium", "hard"];
+    const validStyles = ["standard", "product", "startup", "service"];
     const validDurations = [10, 20, 30];
 
     if (!validLanguages.includes(language)) {
@@ -29,6 +30,9 @@ export async function POST(req: Request) {
     }
     if (!validDifficulties.includes(difficulty)) {
       return NextResponse.json({ error: "Invalid difficulty" }, { status: 400 });
+    }
+    if (!validStyles.includes(style)) {
+      return NextResponse.json({ error: "Invalid style" }, { status: 400 });
     }
     if (!validDurations.includes(duration)) {
       return NextResponse.json({ error: "Invalid duration" }, { status: 400 });
@@ -48,7 +52,7 @@ export async function POST(req: Request) {
     }
 
     // Select a random problem matching the difficulty
-    const matchingProblems = CODING_PROBLEMS.filter(
+    let matchingProblems = CODING_PROBLEMS.filter(
       (p) => p.difficulty === difficulty
     );
 
@@ -57,6 +61,20 @@ export async function POST(req: Request) {
         { error: "No problems available for this difficulty" },
         { status: 404 }
       );
+    }
+
+    // Question bank hygiene: avoid repeating problems the user has already seen
+    const pastInterviews = await prisma.interview.findMany({
+      where: { userId: user.id },
+      select: { problemTitle: true },
+    });
+    
+    const pastTitles = new Set(pastInterviews.map((i) => i.problemTitle));
+    const newProblems = matchingProblems.filter(p => !pastTitles.has(p.title));
+    
+    // If they've done all problems of this difficulty, fallback to repeating
+    if (newProblems.length > 0) {
+      matchingProblems = newProblems;
     }
 
     const problem =
@@ -89,6 +107,7 @@ export async function POST(req: Request) {
         userId: user.id,
         language,
         difficulty,
+        style,
         duration,
         status: "setup",
         problemTitle: problem.title,

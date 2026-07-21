@@ -167,15 +167,21 @@ export function InterviewClient({
     if (existingMessages.length === 0) {
       // Auto-start: get AI's opening message
       async function startInterview() {
+        const currentStore = useInterviewStore.getState();
+        const selectedVoiceId = currentStore.selectedVoiceId;
+        const isFemale = selectedVoiceId && (selectedVoiceId.startsWith("af_") || selectedVoiceId.startsWith("if_") || selectedVoiceId.startsWith("bf_"));
+        const interviewerName = isFemale ? "Nova" : "Alex";
+
         try {
           const res = await fetch(`/api/interviews/${interview.id}/start`, {
             method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ voiceId: selectedVoiceId }),
           });
           if (res.ok) {
             const data = await res.json();
             useInterviewStore.getState().addMessage("assistant", data.message);
 
-            const currentStore = useInterviewStore.getState();
             if (!currentStore.isSpeakerMuted) {
               currentStore.setAIState("speaking");
               speakBackend(data.message, interview.id, () => {
@@ -197,10 +203,9 @@ export function InterviewClient({
           }
         } catch (error) {
           console.error("Failed to start interview:", error);
-          const fallbackMsg = `Hi, I'm Alex. Welcome to your ${interview.difficulty} coding interview. Take a moment to read the problem, and when you're ready, share your initial thoughts.`;
+          const fallbackMsg = `Hi, I'm ${interviewerName}. Welcome to your ${interview.difficulty} coding interview. Take a moment to read the problem, and when you're ready, share your initial thoughts.`;
           useInterviewStore.getState().addMessage("assistant", fallbackMsg);
 
-          const currentStore = useInterviewStore.getState();
           if (!currentStore.isSpeakerMuted) {
             currentStore.setAIState("speaking");
             speakBackend(fallbackMsg, interview.id, () => {

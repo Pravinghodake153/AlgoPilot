@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { SUPPORTED_LANGUAGES, INTERVIEW_DURATIONS } from "@/types";
+import { SUPPORTED_LANGUAGES, INTERVIEW_DURATIONS, INTERVIEW_STYLES } from "@/types";
 
 interface StartInterviewModalProps {
   onClose: () => void;
@@ -23,6 +23,7 @@ export function StartInterviewModal({ onClose }: StartInterviewModalProps) {
   const router = useRouter();
   const [language, setLanguage] = useState("python");
   const [difficulty, setDifficulty] = useState("medium");
+  const [style, setStyle] = useState("standard");
   const [duration, setDuration] = useState(20);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +57,7 @@ export function StartInterviewModal({ onClose }: StartInterviewModalProps) {
       const response = await fetch("/api/interviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language, difficulty, duration }),
+        body: JSON.stringify({ language, difficulty, style, duration }),
       });
 
       if (!response.ok) {
@@ -137,6 +138,29 @@ export function StartInterviewModal({ onClose }: StartInterviewModalProps) {
                   onClick={() => setDifficulty(opt.value)}
                   className={`flex h-9 items-center justify-center rounded-md border text-sm font-medium transition-colors cursor-pointer ${
                     difficulty === opt.value
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          {/* Style */}
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-muted-foreground">
+              Interview Style
+            </legend>
+            <div className="grid grid-cols-2 gap-2">
+              {INTERVIEW_STYLES.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setStyle(opt.value)}
+                  className={`flex h-9 items-center justify-center rounded-md border text-xs font-medium transition-colors cursor-pointer ${
+                    style === opt.value
                       ? "border-foreground bg-foreground text-background"
                       : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
                   }`}

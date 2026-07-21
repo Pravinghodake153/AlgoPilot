@@ -186,128 +186,81 @@ export interface VoiceOption {
 }
 
 /**
- * Get available English voices from the browser, categorized as male/female.
- * Returns a curated list of 5 voices (3 male, 2 female) when available,
- * falling back to whatever the browser offers.
+ * Returns the 10 supported Kokoro-82m voices.
  */
 export function getAvailableVoices(): VoiceOption[] {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-    return getDefaultVoiceList();
-  }
-
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length === 0) return getDefaultVoiceList();
-
-  const englishVoices = voices.filter((v) => v.lang.startsWith("en"));
-
-  if (englishVoices.length === 0) return getDefaultVoiceList();
-
-  // Heuristic to guess gender from voice name
-  const femaleKeywords = [
-    "female",
-    "woman",
-    "samantha",
-    "karen",
-    "moira",
-    "tessa",
-    "fiona",
-    "victoria",
-    "zira",
-    "hazel",
-    "susan",
-    "linda",
-    "jenny",
-    "aria",
-    "sara",
-    "emma",
+  return [
+    {
+      id: "am_adam",
+      name: "am_adam",
+      label: "Adam (US Male)",
+      gender: "male",
+    },
+    {
+      id: "am_michael",
+      name: "am_michael",
+      label: "Michael (US Male)",
+      gender: "male",
+    },
+    {
+      id: "am_fenrir",
+      name: "am_fenrir",
+      label: "Fenrir (US Male)",
+      gender: "male",
+    },
+    {
+      id: "am_puck",
+      name: "am_puck",
+      label: "Puck (US Male)",
+      gender: "male",
+    },
+    {
+      id: "am_echo",
+      name: "am_echo",
+      label: "Echo (US Male)",
+      gender: "male",
+    },
+    {
+      id: "af_heart",
+      name: "af_heart",
+      label: "Nova (US Female)",
+      gender: "female",
+    },
+    {
+      id: "af_bella",
+      name: "af_bella",
+      label: "Bella (US Female)",
+      gender: "female",
+    },
+    {
+      id: "af_sarah",
+      name: "af_sarah",
+      label: "Sarah (US Female)",
+      gender: "female",
+    },
+    {
+      id: "af_nicole",
+      name: "af_nicole",
+      label: "Nicole (US Female)",
+      gender: "female",
+    },
+    {
+      id: "af_sky",
+      name: "af_sky",
+      label: "Sky (US Female)",
+      gender: "female",
+    },
+    {
+      id: "if_sara",
+      name: "if_sara",
+      label: "Sara (India Female)",
+      gender: "female",
+    },
   ];
-  const maleKeywords = [
-    "male",
-    "man",
-    "daniel",
-    "alex",
-    "fred",
-    "tom",
-    "james",
-    "david",
-    "mark",
-    "guy",
-    "thomas",
-    "oliver",
-    "george",
-    "ryan",
-  ];
-
-  const categorized: VoiceOption[] = englishVoices.map((v) => {
-    const nameLower = v.name.toLowerCase();
-    let gender: "male" | "female" = "male"; // default
-
-    if (femaleKeywords.some((kw) => nameLower.includes(kw))) {
-      gender = "female";
-    } else if (maleKeywords.some((kw) => nameLower.includes(kw))) {
-      gender = "male";
-    }
-
-    return {
-      id: v.name,
-      name: v.name,
-      label: `${v.name.split(" ").slice(0, 2).join(" ")}`,
-      gender,
-    };
-  });
-
-  // Pick up to 3 male and 2 female
-  const males = categorized.filter((v) => v.gender === "male").slice(0, 3);
-  const females = categorized.filter((v) => v.gender === "female").slice(0, 2);
-
-  const result = [...males, ...females];
-
-  // If we don't have enough, fill from the full list
-  if (result.length < 3) {
-    for (const v of categorized) {
-      if (!result.find((r) => r.id === v.id)) {
-        result.push(v);
-        if (result.length >= 5) break;
-      }
-    }
-  }
-
-  return result.length > 0 ? result : getDefaultVoiceList();
 }
 
 function getDefaultVoiceList(): VoiceOption[] {
-  return [
-    {
-      id: "default-male-1",
-      name: "Default Male",
-      label: "Alex (Default)",
-      gender: "male",
-    },
-    {
-      id: "default-male-2",
-      name: "Default Male 2",
-      label: "Daniel",
-      gender: "male",
-    },
-    {
-      id: "default-male-3",
-      name: "Default Male 3",
-      label: "Thomas",
-      gender: "male",
-    },
-    {
-      id: "default-female-1",
-      name: "Default Female",
-      label: "Samantha",
-      gender: "female",
-    },
-    {
-      id: "default-female-2",
-      name: "Default Female 2",
-      label: "Karen",
-      gender: "female",
-    },
-  ];
+  return getAvailableVoices();
 }
 
 // Prime the voices loading asynchronously at import time

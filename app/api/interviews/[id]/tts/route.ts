@@ -6,7 +6,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { text } = await req.json();
+    const { text, voice } = await req.json();
 
     if (!text || typeof text !== "string") {
       return NextResponse.json({ error: "No text provided" }, { status: 400 });
@@ -31,7 +31,8 @@ export async function POST(
       body: JSON.stringify({
         model: model,
         input: text,
-        voice: "alloy", // Usually required by OpenAI schema, OpenRouter may map this or ignore it
+        voice: voice || "af_heart",
+        response_format: "mp3",
       }),
     });
 

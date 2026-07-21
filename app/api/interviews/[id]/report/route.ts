@@ -130,6 +130,10 @@ Generate the evaluation report as JSON.`,
         ],
         summary:
           "The evaluation system encountered an issue generating a detailed report. Please try again.",
+        timeComplexity: "Unknown",
+        spaceComplexity: "Unknown",
+        isSolved: false,
+        estimatedLevel: "Unknown",
       };
     }
 
@@ -149,6 +153,10 @@ Generate the evaluation report as JSON.`,
         summary: reportData.summary,
         nextSteps: reportData.nextSteps || [],
         transcriptAnnotations: reportData.transcriptAnnotations || [],
+        timeComplexity: reportData.timeComplexity || "Unknown",
+        spaceComplexity: reportData.spaceComplexity || "Unknown",
+        isSolved: !!reportData.isSolved,
+        estimatedLevel: reportData.estimatedLevel || "Unknown",
       },
     });
 

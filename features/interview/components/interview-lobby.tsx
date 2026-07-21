@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useInterviewStore } from "@/features/interview/store/interview-store";
-import { speak, getAvailableVoices, type VoiceOption } from "@/hooks/use-web-speech";
+import { getAvailableVoices, type VoiceOption } from "@/hooks/use-web-speech";
+import { speakBackend } from "@/hooks/use-tts";
 
 export function InterviewLobby({
   onReady,
@@ -11,9 +12,12 @@ export function InterviewLobby({
 }) {
   const [micStatus, setMicStatus] = useState<"checking" | "ok" | "error">("checking");
   const [speakerTested, setSpeakerTested] = useState(false);
+  const [isPlayingTest, setIsPlayingTest] = useState(false);
   const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const testAudioRef = useRef<HTMLAudioElement | null>(null);
   const mode = useInterviewStore((s) => s.mode);
   const setMode = useInterviewStore((s) => s.setMode);
+  const interviewId = useInterviewStore((s) => s.interviewId);
   const selectedVoiceId = useInterviewStore((s) => s.selectedVoiceId);
   const setSelectedVoiceId = useInterviewStore((s) => s.setSelectedVoiceId);
   const isResuming = useInterviewStore((s) => s.status === "in_progress");
@@ -77,14 +81,53 @@ export function InterviewLobby({
     };
   }, [isResuming]);
 
-  const handleTestSpeaker = () => {
+  // Cleanup test audio on unmount
+  useEffect(() => {
+    return () => {
+      if (testAudioRef.current) {
+        testAudioRef.current.pause();
+        testAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleTestSpeaker = async () => {
+    if (isPlayingTest) {
+      handleStopSpeaker();
+      return;
+    }
+
     setSpeakerTested(true);
-    speak("Hello! I am your AI interviewer. Your speaker is working.", {
-      rate: 1.0,
-      voiceName: selectedVoiceId?.startsWith("default-") ? null : selectedVoiceId,
-      onEnd: () => {},
-      onError: () => {},
-    });
+    setIsPlayingTest(true);
+
+    if (interviewId) {
+      try {
+        const audio = await speakBackend(
+          "Hello! I am your AI interviewer. Your speaker is working.",
+          interviewId,
+          () => setIsPlayingTest(false), // onEnd
+          () => setIsPlayingTest(false)  // onError
+        );
+        if (audio) {
+          testAudioRef.current = audio;
+        } else {
+          setIsPlayingTest(false);
+        }
+      } catch (err) {
+        console.error("Test speaker failed:", err);
+        setIsPlayingTest(false);
+      }
+    } else {
+      setIsPlayingTest(false);
+    }
+  };
+
+  const handleStopSpeaker = () => {
+    if (testAudioRef.current) {
+      testAudioRef.current.pause();
+      testAudioRef.current = null;
+    }
+    setIsPlayingTest(false);
   };
 
   if (isResuming) {
@@ -184,9 +227,13 @@ export function InterviewLobby({
                     </div>
                     <button
                       onClick={handleTestSpeaker}
-                      className="rounded-md bg-secondary px-3 py-1 text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors"
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        isPlayingTest
+                          ? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
+                          : "bg-secondary text-foreground hover:bg-secondary/80"
+                      }`}
                     >
-                      Test
+                      {isPlayingTest ? "Stop" : "Test"}
                     </button>
                   </div>
 

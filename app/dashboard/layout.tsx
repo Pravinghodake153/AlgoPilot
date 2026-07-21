@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
@@ -17,6 +17,11 @@ export default async function DashboardLayout({
   if (!userId) {
     redirect("/sign-in");
   }
+
+  const clerk = await clerkClient();
+  const user = await clerk.users.getUser(userId);
+  const email = user.emailAddresses[0]?.emailAddress;
+  const isAdmin = email === (process.env.ADMIN_EMAIL || "ghodakepravin154@gmail.com");
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -46,6 +51,14 @@ export default async function DashboardLayout({
 
         {/* Right: User controls */}
         <div className="flex items-center gap-4">
+          {isAdmin && (
+            <Link 
+              href="/admin" 
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Admin
+            </Link>
+          )}
           <UserButton />
         </div>
       </header>

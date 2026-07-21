@@ -1,0 +1,7 @@
+- `[x]` Update `.env.local` with `OPENROUTER_STT_MODEL` and `OPENROUTER_TTS_MODEL`
+- `[x]` Create `app/api/interviews/[id]/stt/route.ts`
+- `[x]` Create `app/api/interviews/[id]/tts/route.ts`
+- `[x]` Update `features/interview/store/interview-store.ts` for voiceInputMode
+- `[x]` Update `features/interview/components/voice-input.tsx` for Manual / Auto mode toggle and MediaRecorder
+- `[x]` Update `features/interview/components/interview-client.tsx` to handle backend TTS
+- `[x]` Build, test and deploy

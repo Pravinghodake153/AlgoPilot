@@ -5,13 +5,12 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export const runtime = "edge"; // Edge runtime bypasses the 60s Vercel limit!
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 /**
  * POST /api/interviews/[id]/chat-stream
  * Expects the conversation history in the request body.
- * Runs on Vercel's Edge runtime and connects to OpenRouter, returning the SSE stream.
- * Does NOT interact with Prisma (since Edge doesn't support our Prisma setup).
+ * Connects to AI Provider, returning the SSE stream.
  */
 export async function POST(req: Request, context: RouteContext) {
   try { console.log("CHAT-STREAM ACCESSED");

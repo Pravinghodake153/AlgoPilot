@@ -28,6 +28,7 @@ model Interview {
   user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   language           String      // "cpp", "java", "python", "javascript", "go"
   difficulty         String      // "easy", "medium", "hard"
+  style              String      @default("standard") // "standard", "product", "startup", "service"
   duration           Int         // in minutes (e.g. 10, 20)
   status             String      // "setup", "in_progress", "completed", "cancelled"
   problemTitle       String
@@ -71,6 +72,14 @@ model Report {
   summary            String    @db.Text
   nextSteps          Json?     // String[] stored as JSON
   transcriptAnnotations Json?  // Array of { messageIndex, tag, rationale }
+  
+  // Advanced Metrics
+  timeComplexity     String?
+  spaceComplexity    String?
+  isSolved           Boolean   @default(false)
+  estimatedLevel     String?
+
+  isPublic           Boolean   @default(true)
   createdAt          DateTime  @default(now())
 }
 
@@ -94,4 +103,10 @@ model ErrorLog {
   createdAt   DateTime  @default(now())
 
   @@index([interviewId])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }

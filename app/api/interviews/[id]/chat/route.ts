@@ -32,7 +32,7 @@ export async function POST(req: Request, context: RouteContext) {
 
     const { id } = await context.params;
     const body = await req.json();
-    const { message, code, executionResult, timeRemainingSeconds } = body;
+    const { message, code, executionResult, timeRemainingSeconds, voiceId } = body;
 
     if (!message || typeof message !== "string") {
       return new Response(JSON.stringify({ error: "Message is required" }), {
@@ -93,11 +93,13 @@ export async function POST(req: Request, context: RouteContext) {
       problemDescription: interview.problemDescription,
       language: interview.language,
       difficulty: interview.difficulty,
+      style: (interview as any).style,
       duration: interview.duration,
       timeRemainingSeconds:
         typeof timeRemainingSeconds === "number"
           ? timeRemainingSeconds
           : undefined,
+      voiceId,
     });
 
     const conversationHistory: ChatMessage[] = [

@@ -8,6 +8,8 @@
 
 
 
+import { prisma } from "@/lib/prisma";
+
 export interface ChatMessage {
   role: "system" | "assistant" | "user";
   content: string;
@@ -15,18 +17,35 @@ export interface ChatMessage {
 
 // ─── Shared config helper ────────────────────
 
-function getProviderConfig() {
+export async function getProviderConfig() {
+  // Default fallbacks from environment
+  let activeProvider = "gemini";
+  let activeModel = "gemini-2.5-flash";
+
+  try {
+    const providerSetting = await prisma.systemSetting.findUnique({ where: { key: "DEFAULT_AI_PROVIDER" } });
+    if (providerSetting) activeProvider = providerSetting.value;
+
+    const modelSetting = await prisma.systemSetting.findUnique({ where: { key: "DEFAULT_AI_MODEL" } });
+    if (modelSetting) activeModel = modelSetting.value;
+  } catch (e) {
+    console.warn("Failed to fetch SystemSetting from Prisma, using defaults", e);
+  }
+
   return {
+    activeProvider,
+    activeModel,
+    gemini: {
+      key: process.env.GEMINI_API_KEY || "",
+      url: "https://generativelanguage.googleapis.com/v1beta/openai",
+    },
     openrouter: {
       key: process.env.OPENROUTER_API_KEY || "",
       url: process.env.OPENROUTER_API_URL || "https://openrouter.ai/api/v1",
-      model: process.env.OPENROUTER_MODEL || "deepseek/deepseek-chat",
-      fallbackModel: process.env.OPENROUTER_FALLBACK_MODEL || "google/gemini-2.5-flash-lite",
     },
     deepseek: {
       key: process.env.DEEPSEEK_API_KEY || "",
       url: process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1",
-      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
     },
   };
 }
@@ -42,11 +61,7 @@ export async function deepseekChat(
     maxTokens?: number;
   }
 ): Promise<string> {
-  const config = getProviderConfig();
-
-  if (!config.openrouter.key && !config.deepseek.key) {
-    throw new Error("No API key configured (neither DEEPSEEK_API_KEY nor OPENROUTER_API_KEY)");
-  }
+  const config = await getProviderConfig();
 
   async function makeRequest(
     url: string,
@@ -96,34 +111,35 @@ export async function deepseekChat(
     }
   }
 
-  // 1. Try OpenRouter first (Primary)
-  if (config.openrouter.key) {
-    try {
-      return await makeRequest(config.openrouter.url, config.openrouter.key, config.openrouter.model, true, messages, options, 25000);
-    } catch (err) {
-      console.error("OpenRouter DeepSeek failed. Falling back to configured OpenRouter fallback model...", err);
-      try {
-        return await makeRequest(config.openrouter.url, config.openrouter.key, config.openrouter.fallbackModel, true, messages, options, 30000);
-      } catch (geminiErr) {
-        console.error("OpenRouter Gemini failed. Falling back to Official DeepSeek API...", geminiErr);
-        if (!config.deepseek.key) {
-          throw new Error("OpenRouter failed and no DeepSeek fallback key is configured.");
-        }
-      }
-    }
+  // Determine active provider settings
+  let url = config.gemini.url;
+  let key = config.gemini.key;
+  let model = config.activeModel;
+  let isOpenRouter = false;
+
+  if (config.activeProvider === "openrouter") {
+    url = config.openrouter.url;
+    key = config.openrouter.key;
+    isOpenRouter = true;
+  } else if (config.activeProvider === "deepseek") {
+    url = config.deepseek.url;
+    key = config.deepseek.key;
+  } else {
+    // Default to Gemini
+    url = config.gemini.url;
+    key = config.gemini.key;
   }
 
-  // 2. Fallback to Official DeepSeek API
-  if (config.deepseek.key) {
-    try {
-      return await makeRequest(config.deepseek.url, config.deepseek.key, config.deepseek.model, false, messages, options, 30000);
-    } catch (err) {
-      console.error("DeepSeek API failed.", err);
-      throw err;
-    }
+  if (!key) {
+    throw new Error(`No API key configured for provider: ${config.activeProvider}`);
   }
 
-  throw new Error("API request failed.");
+  try {
+    return await makeRequest(url, key, model, isOpenRouter, messages, options, 25000);
+  } catch (err) {
+    console.error(`${config.activeProvider} failed.`, err);
+    throw err;
+  }
 }
 
 /**
@@ -141,85 +157,62 @@ export async function deepseekChatStream(
     onComplete?: (result: { content: string; thinking: string | null }) => Promise<void>;
   }
 ): Promise<{ stream: ReadableStream<Uint8Array>; fullText: Promise<{ content: string; thinking: string | null }> }> {
-  const config = getProviderConfig();
+  const config = await getProviderConfig();
 
-  if (!config.openrouter.key && !config.deepseek.key) {
-    throw new Error("No API key configured");
+  let url = config.gemini.url;
+  let key = config.gemini.key;
+  let model = config.activeModel;
+  let isOpenRouter = false;
+
+  if (config.activeProvider === "openrouter") {
+    url = config.openrouter.url;
+    key = config.openrouter.key;
+    isOpenRouter = true;
+  } else if (config.activeProvider === "deepseek") {
+    url = config.deepseek.url;
+    key = config.deepseek.key;
+  } else {
+    // Default to Gemini
+    url = config.gemini.url;
+    key = config.gemini.key;
   }
 
-  const provider = config.openrouter.key
-    ? { ...config.openrouter, isOpenRouter: true }
-    : { ...config.deepseek, isOpenRouter: false };
+  if (!key) {
+    throw new Error(`No API key configured for provider: ${config.activeProvider}`);
+  }
 
   let response: Response;
   const controller = new AbortController();
   
   try {
-    response = await fetch(`${provider.url}/chat/completions`, {
+    response = await fetch(`${url}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${provider.key}`,
-        ...(provider.isOpenRouter ? {
+        Authorization: `Bearer ${key}`,
+        ...(isOpenRouter ? {
           "HTTP-Referer": "http://localhost:3000",
           "X-Title": "AlgoPilot",
         } : {}),
       },
       body: JSON.stringify({
-        model: provider.model,
+        model,
         messages,
         temperature: options?.temperature ?? 0.7,
-        max_tokens: options?.maxTokens ?? 1024, // increased max tokens for reasoning
+        max_tokens: options?.maxTokens ?? 1024,
         stream: true,
-        include_reasoning: true, // Request reasoning from OpenRouter
+        ...(isOpenRouter && { include_reasoning: true }), // Request reasoning from OpenRouter
       }),
       signal: controller.signal,
     });
     
-    if (!response.ok) throw new Error(`Streaming API error (${response.status})`);
-  } catch (err) {
-    if (provider.isOpenRouter) {
-      console.error("OpenRouter DeepSeek streaming failed. Falling back to configured fallback model...", err);
-      try {
-        response = await fetch(`${config.openrouter.url}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.openrouter.key}`,
-            "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "AlgoPilot",
-          },
-          body: JSON.stringify({
-            model: config.openrouter.fallbackModel,
-            messages,
-            temperature: options?.temperature ?? 0.7,
-            max_tokens: options?.maxTokens ?? 1024,
-            stream: true,
-          }),
-        });
-        if (!response.ok) throw new Error(`Fallback streaming API error (${response.status})`);
-      } catch (fallbackErr) {
-        console.error("OpenRouter fallback streaming failed. Falling back to Official DeepSeek API...", fallbackErr);
-        if (!config.deepseek.key) throw new Error("All streaming providers failed.");
-        response = await fetch(`${config.deepseek.url}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.deepseek.key}`,
-          },
-          body: JSON.stringify({
-            model: config.deepseek.model,
-            messages,
-            temperature: options?.temperature ?? 0.7,
-            max_tokens: options?.maxTokens ?? 1024,
-            stream: true,
-          }),
-        });
-        if (!response.ok) throw new Error(`Official DeepSeek streaming API error (${response.status})`);
-      }
-    } else {
-      throw err;
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Streaming API error (${response.status}): ${errText}`);
     }
+  } catch (err) {
+    console.error(`Streaming failed for ${config.activeProvider}.`, err);
+    throw err;
   }
 
   if (!response.body) {
@@ -410,8 +403,10 @@ export function buildInterviewerSystemPrompt(config: {
   problemDescription: string;
   language: string;
   difficulty: string;
+  style?: string;
   duration: number;
   timeRemainingSeconds?: number;
+  voiceId?: string;
 }): string {
   // Build time-awareness context
   let timeContext = "";
@@ -446,7 +441,32 @@ TIME BEHAVIOR (UNDER 5 MINUTES):
     }
   }
 
-  return `You are a senior software engineer conducting a live coding interview. Your name is Alex.
+  const isFemale = config.voiceId && (config.voiceId.startsWith("af_") || config.voiceId.startsWith("if_") || config.voiceId.startsWith("bf_"));
+  const interviewerName = isFemale ? "Nova" : "Alex";
+
+  let styleInstructions = "";
+  if (config.style === "product") {
+    styleInstructions = `
+STYLE (Product-company/FAANG):
+- Focus heavily on Data Structures and Algorithms (DSA).
+- Emphasize time and space complexity optimization.
+- Probe deeply on edge cases, large inputs, and strict constraints.
+- Expect production-level code.`;
+  } else if (config.style === "startup") {
+    styleInstructions = `
+STYLE (Startup):
+- Focus on practical implementation and rapid problem-solving.
+- Ask about trade-offs, tech debt, and how this fits into a larger system architecture.
+- Prefer readable, maintainable, "get-it-done" code over hyper-optimized but unreadable code.`;
+  } else if (config.style === "service") {
+    styleInstructions = `
+STYLE (Service-company):
+- Focus on core fundamentals and language-specific nuances.
+- Check for basic algorithmic understanding rather than highly complex dynamic programming.
+- Ask questions about basic SQL concepts or general computing principles if appropriate.`;
+  }
+
+  return `You are a senior software engineer conducting a live coding interview. Your name is ${interviewerName}.
 
 ROLE:
 - You are a professional, calm, and encouraging technical interviewer.
@@ -458,6 +478,7 @@ INTERVIEW CONTEXT:
 - Difficulty: ${config.difficulty}
 - Language: ${config.language}
 - Duration: ${config.duration} minutes
+${styleInstructions}
 ${timeContext}
 
 PROBLEM DETAILS:
@@ -479,6 +500,7 @@ BEHAVIOR RULES:
 9. Do NOT use markdown formatting, code blocks, or bullet points. Speak naturally.
 10. Address the candidate directly ("you", "your code", etc.).
 11. You can see the candidate's code in the editor and their execution results. Reference specific lines or variables when giving feedback.
+12. DIFFICULTY ADAPTATION: Monitor the candidate's performance. If they solve the problem quickly, escalate the difficulty by asking a complex follow-up or system design question. If they struggle, provide hints and dynamically step down the difficulty. Make a note of this adaptation in your reasoning/thinking.
 
 TONE: Professional, calm, encouraging. Like a real interviewer at a top tech company.`;
 }
@@ -508,7 +530,11 @@ OUTPUT FORMAT (respond ONLY with valid JSON, no markdown):
       "tag": "Missed Edge Case",
       "rationale": "The candidate didn't consider empty inputs here."
     }
-  ]
+  ],
+  "timeComplexity": "e.g., O(N)",
+  "spaceComplexity": "e.g., O(1)",
+  "isSolved": true,
+  "estimatedLevel": "Junior | Mid-Level | Senior"
 }
 
 SCORING GUIDELINES:
@@ -525,6 +551,15 @@ EVALUATE:
 - Problem Solving: Breaking down problems, handling edge cases
 - Optimization: Time/space complexity awareness, improvements
 - Code Quality: Clean code, naming, structure, readability
+
+ADVANCED METRICS:
+- "timeComplexity": Analyze the final code to determine the Big-O time complexity.
+- "spaceComplexity": Analyze the final code to determine the Big-O space complexity (auxiliary space).
+- "isSolved": Set to true ONLY if the candidate's final code effectively solves the core problem.
+- "estimatedLevel": Determine seniority (Junior, Mid-Level, or Senior) based on:
+  - Junior: Needed heavy hints, missed edge cases, brute-force solutions.
+  - Mid-Level: Solid execution, good communication, but maybe missed optimal approach or minor edge cases initially.
+  - Senior: Wrote optimal code quickly, proactively handled edge cases, excellent communication of trade-offs.
 
 ANNOTATIONS:
 - The transcript contains messages prefixed with "[Msg X]".
