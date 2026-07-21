@@ -13,9 +13,10 @@ import { useInterviewStore } from "@/features/interview/store/interview-store";
  */
 interface TextInputProps {
   sendMessage: (text: string) => void;
+  stopGeneration: () => void;
 }
 
-export function TextInput({ sendMessage }: TextInputProps) {
+export function TextInput({ sendMessage, stopGeneration }: TextInputProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const aiState = useInterviewStore((s) => s.aiState);
@@ -72,26 +73,43 @@ export function TextInput({ sendMessage }: TextInputProps) {
         rows={1}
         className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-40"
       />
-      <button
-        onClick={handleSend}
-        disabled={isDisabled || !input.trim()}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-30 cursor-pointer"
-        aria-label="Send message"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+      {isStreaming ? (
+        <button
+          onClick={stopGeneration}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-colors cursor-pointer"
+          aria-label="Stop generating"
         >
-          <path d="M22 2 11 13" />
-          <path d="m22 2-7 20-4-9-9-4 20-7z" />
-        </svg>
-      </button>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={isDisabled || !input.trim()}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-30 cursor-pointer"
+          aria-label="Send message"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M22 2 11 13" />
+            <path d="m22 2-7 20-4-9-9-4 20-7z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

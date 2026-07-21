@@ -196,6 +196,14 @@ export function useChatStream(options: UseChatStreamOptions) {
           // onError
           (err) => {
             clearTimeout(timeoutIdRef.current);
+            
+            // If the stream was aborted manually, do not show connection error message
+            if (err instanceof DOMException && err.name === "AbortError") {
+              forceRecovery();
+              options.onError?.(err);
+              return;
+            }
+
             console.error("Stream error:", err);
 
             const errMsg = isTimeout
@@ -219,6 +227,13 @@ export function useChatStream(options: UseChatStreamOptions) {
         clearTimeout(timeoutIdRef.current);
         if (!isMountedRef.current) return;
 
+        // Check if aborted in catch block
+        if (err instanceof DOMException && err.name === "AbortError") {
+          forceRecovery();
+          options.onError?.(err);
+          return;
+        }
+
         const errMsg = isTimeout
           ? "We encountered an error. Please try again."
           : "Sorry, I encountered a connection issue. Could you repeat that?";
@@ -233,5 +248,14 @@ export function useChatStream(options: UseChatStreamOptions) {
     [options, forceRecovery]
   );
 
-  return { sendMessage, forceRecovery };
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    clearTimeout(timeoutIdRef.current);
+    forceRecovery();
+  }, [forceRecovery]);
+
+  return { sendMessage, stopGeneration, forceRecovery };
 }

@@ -88,7 +88,7 @@ export function InterviewClient({
     [bufferToken, flushAndFinish, stopTTS]
   );
 
-  const { sendMessage } = useChatStream(streamCallbacks);
+  const { sendMessage, stopGeneration } = useChatStream(streamCallbacks);
 
   // Stable sendMessage for child components
   const handleSendMessage = useCallback(
@@ -98,6 +98,11 @@ export function InterviewClient({
     },
     [sendMessage, resetTTS]
   );
+
+  const handleStopGeneration = useCallback(() => {
+    stopGeneration();
+    resetTTS();
+  }, [stopGeneration, resetTTS]);
 
   // Redirect to report page when interview is completed
   useEffect(() => {
@@ -285,10 +290,10 @@ export function InterviewClient({
       {status === "in_progress" && (
         <>
           <div style={{ display: mode === "text" ? "block" : "none" }}>
-            <TextInput sendMessage={handleSendMessage} />
+            <TextInput sendMessage={handleSendMessage} stopGeneration={handleStopGeneration} />
           </div>
           <div style={{ display: mode === "voice" ? "block" : "none" }}>
-            <VoiceInput sendMessage={handleSendMessage} />
+            <VoiceInput sendMessage={handleSendMessage} stopGeneration={handleStopGeneration} />
           </div>
           <VoiceControls />
         </>

@@ -12,9 +12,10 @@ import { useWebSpeech, stopSpeaking } from "@/hooks/use-web-speech";
  */
 interface VoiceInputProps {
   sendMessage: (text: string) => void;
+  stopGeneration: () => void;
 }
 
-export function VoiceInput({ sendMessage }: VoiceInputProps) {
+export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
   const isMicMuted = useInterviewStore((s) => s.isMicMuted);
   const aiState = useInterviewStore((s) => s.aiState);
   const isStreaming = useInterviewStore((s) => s.isStreaming);
@@ -72,22 +73,27 @@ export function VoiceInput({ sendMessage }: VoiceInputProps) {
   }, [isMicMuted, aiState, isStreaming, pauseListening, resumeListening]);
 
   const isActive = isListening && !isMicMuted;
+  const isGenerating = isStreaming || aiState === "thinking";
 
-  function handleToggleListening() {
-    if (isListening) {
-      stopSpeaking();
-      stopListening();
-      setAIState("idle");
+  function handleButtonClick() {
+    if (isGenerating) {
+      stopGeneration();
     } else {
-      // Unlock the speech synthesis engine with a user gesture
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        const unlockUtterance = new SpeechSynthesisUtterance(".");
-        unlockUtterance.volume = 0.01;
-        window.speechSynthesis.speak(unlockUtterance);
-      }
+      if (isListening) {
+        stopSpeaking();
+        stopListening();
+        setAIState("idle");
+      } else {
+        // Unlock the speech synthesis engine with a user gesture
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          const unlockUtterance = new SpeechSynthesisUtterance(".");
+          unlockUtterance.volume = 0.01;
+          window.speechSynthesis.speak(unlockUtterance);
+        }
 
-      startListening();
-      setAIState("listening");
+        startListening();
+        setAIState("listening");
+      }
     }
   }
 
@@ -104,12 +110,17 @@ export function VoiceInput({ sendMessage }: VoiceInputProps) {
 
   return (
     <div className="flex flex-col items-center gap-3 border-t border-border px-4 py-4">
-      {/* Listening indicator */}
+      {/* Listening / Generating / Stop button */}
       <button
-        onClick={handleToggleListening}
-        disabled={aiState === "thinking" || isStreaming}
-        className="group relative flex h-14 w-14 items-center justify-center rounded-full transition-all cursor-pointer disabled:opacity-40"
-        aria-label={isActive ? "Stop listening" : "Start listening"}
+        onClick={handleButtonClick}
+        className="group relative flex h-14 w-14 items-center justify-center rounded-full transition-all cursor-pointer"
+        aria-label={
+          isGenerating
+            ? "Stop generating"
+            : isActive
+              ? "Stop listening"
+              : "Start listening"
+        }
       >
         {/* Pulse ring when active */}
         {isActive && (
@@ -118,14 +129,26 @@ export function VoiceInput({ sendMessage }: VoiceInputProps) {
 
         <span
           className={`relative flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
-            isActive
-              ? "bg-emerald-500/20 text-emerald-400"
-              : aiState === "speaking"
-                ? "bg-blue-500/20 text-blue-400"
-                : "bg-secondary text-muted-foreground group-hover:text-foreground"
+            isGenerating
+              ? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
+              : isActive
+                ? "bg-emerald-500/20 text-emerald-400"
+                : aiState === "speaking"
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "bg-secondary text-muted-foreground group-hover:text-foreground"
           }`}
         >
-          {aiState === "speaking" ? (
+          {isGenerating ? (
+            /* Stop square icon */
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+            </svg>
+          ) : aiState === "speaking" ? (
             /* Speaker icon when AI is speaking */
             <svg
               width="20"
@@ -162,10 +185,10 @@ export function VoiceInput({ sendMessage }: VoiceInputProps) {
       </button>
 
       <span className="text-xs text-muted-foreground">
-        {isActive
-          ? "Listening..."
-          : aiState === "thinking"
-            ? "AI is thinking..."
+        {isGenerating
+          ? "Stop Generating"
+          : isActive
+            ? "Listening..."
             : aiState === "speaking"
               ? "AI is speaking..."
               : "Tap to speak"}
