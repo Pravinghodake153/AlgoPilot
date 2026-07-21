@@ -145,6 +145,14 @@ export async function POST(req: Request) {
       });
     }
 
+    if (body.showAiThinking !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "SHOW_AI_THINKING" },
+        update: { value: String(body.showAiThinking) },
+        create: { key: "SHOW_AI_THINKING", value: String(body.showAiThinking) },
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin POST Error:", error);

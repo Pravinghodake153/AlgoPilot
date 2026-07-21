@@ -1,24 +1,30 @@
 "use client";
 
+import { useInterviewStore } from "@/features/interview/store/interview-store";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 export function MessageContent({ content }: { content: string }) {
+  const showAiThinking = useInterviewStore((s) => s.showAiThinking);
+
   // Check for complete thinking format
   const completeThinkingMatch = content.match(/(?:\s*\*Thinking\.\.\.\*\s*\n)([\s\S]*?)(?:\n\s*---\s*\n)([\s\S]*)$/);
   
   if (completeThinkingMatch) {
+    const answerContent = completeThinkingMatch[2];
     return (
       <div className="flex flex-col gap-1 mt-1">
-        <details key="thinking-complete" className="text-[11px] text-slate-500">
-          <summary className="cursor-pointer hover:text-slate-400 select-none">Thinking Process</summary>
-          <div className="mt-1 whitespace-pre-wrap pl-2 border-l border-slate-700/50 italic opacity-80">
-            {completeThinkingMatch[1]}
-          </div>
-        </details>
+        {showAiThinking && (
+          <details key="thinking-complete" className="text-[11px] text-slate-500">
+            <summary className="cursor-pointer hover:text-slate-400 select-none">Thinking Process</summary>
+            <div className="mt-1 whitespace-pre-wrap pl-2 border-l border-slate-700/50 italic opacity-80">
+              {completeThinkingMatch[1]}
+            </div>
+          </details>
+        )}
         <div className="leading-relaxed prose prose-sm dark:prose-invert max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {completeThinkingMatch[2]}
+            {answerContent}
           </ReactMarkdown>
         </div>
       </div>
@@ -28,6 +34,13 @@ export function MessageContent({ content }: { content: string }) {
   // Check for in-progress thinking format
   const thinkingInProgressMatch = content.match(/(?:\s*\*Thinking\.\.\.\*\s*\n)([\s\S]*)$/);
   if (thinkingInProgressMatch) {
+    if (!showAiThinking) {
+      return (
+        <div className="text-xs text-muted-foreground/60 italic animate-pulse py-1">
+          Thinking...
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col gap-1 mt-1">
         <details key="thinking-progress" open className="text-[11px] text-slate-500">

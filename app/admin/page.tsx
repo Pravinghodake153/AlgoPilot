@@ -26,6 +26,7 @@ export default function AdminPage() {
   const [zaiApiKey, setZaiApiKey] = useState("511ba8c060534cd2b50e8e78170d4ed2.6hEKr2c10VeIHk3c");
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
+  const [showAiThinking, setShowAiThinking] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
@@ -47,6 +48,7 @@ export default function AdminPage() {
         if (data.settings.ZAI_API_KEY) setZaiApiKey(data.settings.ZAI_API_KEY);
         if (data.settings.OPENROUTER_API_KEY) setOpenrouterApiKey(data.settings.OPENROUTER_API_KEY);
         if (data.settings.DEEPSEEK_API_KEY) setDeepseekApiKey(data.settings.DEEPSEEK_API_KEY);
+        if (data.settings.SHOW_AI_THINKING !== undefined) setShowAiThinking(data.settings.SHOW_AI_THINKING === "true");
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -72,6 +74,7 @@ export default function AdminPage() {
           zaiApiKey,
           openrouterApiKey,
           deepseekApiKey,
+          showAiThinking,
         }),
       });
       if (!res.ok) throw new Error("Failed to save settings");
@@ -199,6 +202,26 @@ export default function AdminPage() {
                   placeholder="e.g. gemini-2.5-flash"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                <div>
+                  <label className="text-sm font-medium cursor-pointer">Show AI Thinking Process</label>
+                  <p className="text-xs text-muted-foreground">Display model reasoning chain in interview chat</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAiThinking(!showAiThinking)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    showAiThinking ? "bg-primary" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      showAiThinking ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
               </div>
             </div>
           </div>

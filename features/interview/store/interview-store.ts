@@ -99,6 +99,9 @@ interface InterviewState {
   editorSplitPercent: number; // % of width for editor panel (horizontal)
   problemSplitPercent: number; // % of height for problem panel
 
+  // Settings
+  showAiThinking: boolean;
+
   // Hints
   hintsUsed: number;
 
@@ -116,11 +119,13 @@ interface InterviewState {
     code: string;
     status?: InterviewState["status"];
     timeRemainingSeconds?: number;
+    showAiThinking?: boolean;
   }) => void;
   setStatus: (status: InterviewState["status"]) => void;
   setCode: (code: string) => void;
   setAIState: (state: AIState) => void;
   setMode: (mode: InterviewMode) => void;
+  setShowAiThinking: (show: boolean) => void;
   addMessage: (role: MessageRole, content: string) => void;
   setTimeRemaining: (seconds: number) => void;
   setTimerActive: (active: boolean) => void;
@@ -169,6 +174,7 @@ const initialState = {
   showAIPanel: layoutPrefs.showAIPanel,
   editorSplitPercent: layoutPrefs.editorSplitPercent,
   problemSplitPercent: layoutPrefs.problemSplitPercent,
+  showAiThinking: true,
   hintsUsed: 0,
   saveStatus: "idle" as const,
 };
@@ -190,6 +196,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       code: data.code,
       timeRemainingSeconds: data.timeRemainingSeconds ?? data.duration * 60,
       timerActive: data.status === "in_progress",
+      showAiThinking: data.showAiThinking ?? true,
       messages: [],
       aiState: "idle",
       hintsUsed: 0,
@@ -203,6 +210,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   setAIState: (aiState) => set({ aiState }),
 
   setMode: (mode) => set({ mode }),
+
+  setShowAiThinking: (showAiThinking) => set({ showAiThinking }),
 
   addMessage: (role, content) =>
     set((state) => ({
