@@ -61,9 +61,15 @@ export default async function ReportPage({ params }: ReportPageProps) {
               weaknesses: interview.report.weaknesses as string[],
               suggestions: interview.report.suggestions as string[],
               summary: interview.report.summary,
+              nextSteps: (interview.report.nextSteps as string[]) || [],
+              transcriptAnnotations: (interview.report.transcriptAnnotations as any[]) || [],
             }
           : null
       }
+      messages={interview.messages.map((m) => ({
+        ...m,
+        content: (m as any).thinking ? `\n*Thinking...*\n${(m as any).thinking}\n\n---\n\n${m.content}` : m.content,
+      }))}
       messageCount={interview.messages.length}
     />
   );

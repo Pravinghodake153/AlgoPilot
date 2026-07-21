@@ -50,11 +50,12 @@ export default async function InterviewPage({ params }: InterviewPageProps) {
         problemTitle: interview.problemTitle,
         problemDescription: interview.problemDescription,
         code: interview.code,
+        startedAt: interview.startedAt ? interview.startedAt.getTime() : null,
       }}
       existingMessages={interview.messages.map((m) => ({
         id: m.id,
         role: m.role as "assistant" | "user" | "system",
-        content: m.content,
+        content: (m as any).thinking ? `\n*Thinking...*\n${(m as any).thinking}\n\n---\n\n${m.content}` : m.content,
         timestamp: m.createdAt.getTime(),
       }))}
     />

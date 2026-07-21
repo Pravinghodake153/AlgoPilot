@@ -17,6 +17,7 @@ model User {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   interviews Interview[]
+  feedbacks  Feedback[]
 
   @@index([clerkId])
 }
@@ -37,6 +38,7 @@ model Interview {
   createdAt          DateTime    @default(now())
   messages           Message[]
   report             Report?
+  errorLogs          ErrorLog[]
 
   @@index([userId])
 }
@@ -46,6 +48,7 @@ model Message {
   interviewId String
   interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   role        String    // "assistant", "user", "system"
+  thinking    String?   @db.Text
   content     String    @db.Text
   createdAt   DateTime  @default(now())
 
@@ -66,5 +69,29 @@ model Report {
   weaknesses         Json      // String[] stored as JSON
   suggestions        Json      // String[] stored as JSON
   summary            String    @db.Text
+  nextSteps          Json?     // String[] stored as JSON
+  transcriptAnnotations Json?  // Array of { messageIndex, tag, rationale }
   createdAt          DateTime  @default(now())
+}
+
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ErrorLog {
+  id          String    @id @default(uuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  errorType   String    // e.g. "TIMEOUT"
+  message     String    @db.Text
+  createdAt   DateTime  @default(now())
+
+  @@index([interviewId])
 }

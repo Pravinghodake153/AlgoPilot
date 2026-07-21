@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { InterviewList } from "@/features/interview/components/interview-list";
 import { StartInterviewButton } from "@/features/interview/components/start-interview-button";
+import { ProgressChart } from "@/features/dashboard/components/progress-chart";
 
 /**
  * Dashboard page — Welcome message, Start Interview CTA, Previous Interviews list.
@@ -69,8 +70,11 @@ export default async function DashboardPage() {
         <StartInterviewButton />
       </div>
 
+      {/* Performance Trend */}
+      <ProgressChart interviews={interviews as any} />
+
       {/* Previous Interviews */}
-      <section className="mt-10">
+      <section>
         <h2 className="text-sm font-medium text-muted-foreground">
           Previous Interviews
         </h2>

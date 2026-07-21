@@ -109,6 +109,8 @@ export interface InterviewReport {
   weaknesses: string[];
   suggestions: string[];
   summary: string;
+  nextSteps?: string[];
+  transcriptAnnotations?: { messageIndex: number; tag: string; rationale: string }[];
   createdAt: string;
 }
 

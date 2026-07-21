@@ -71,15 +71,70 @@ export async function POST(req: Request) {
         if (submitResponse.ok) {
           const result = await submitResponse.json();
           jdoodleSuccess = true;
+
+          // Safely parse memory and cpuTime to numbers
+          const memoryVal = result.memory ? parseInt(result.memory.toString(), 10) : 0;
+          const timeVal = result.cpuTime ? parseFloat(result.cpuTime.toString()) : 0;
+          
+          const outputStr = (result.output || "").toString();
+
+          // Detect runtime errors in the output text
+          // JDoodle puts tracebacks/errors in "output", NOT in "error"
+          const runtimeErrorPatterns = [
+            /Traceback \(most recent call last\)/i,
+            /^.*Error:.*$/m,
+            /^.*Exception:.*$/m,
+            /error: /i,
+            /fatal error/i,
+            /segmentation fault/i,
+            /compilation error/i,
+            /SyntaxError/,
+            /TypeError/,
+            /NameError/,
+            /ValueError/,
+            /IndexError/,
+            /KeyError/,
+            /AttributeError/,
+            /ImportError/,
+            /ZeroDivisionError/,
+            /RuntimeError/,
+            /IndentationError/,
+            /FileNotFoundError/,
+            /NullPointerException/,
+            /ArrayIndexOutOfBoundsException/,
+            /ClassNotFoundException/,
+            /panic:/,
+          ];
+
+          const hasRuntimeError = runtimeErrorPatterns.some((pattern) =>
+            pattern.test(outputStr)
+          );
+
+          // Also check JDoodle's explicit error field
+          const hasExplicitError = !!result.error;
+          const isError = hasRuntimeError || hasExplicitError;
+
+          let stdout = "";
+          let stderr: string | null = null;
+
+          if (isError) {
+            // The entire output is the error trace
+            stderr = outputStr;
+            stdout = "";
+          } else {
+            stdout = outputStr;
+            stderr = result.error || null;
+          }
+
           jdoodleResponseData = {
             result: {
-              stdout: result.output || "",
-              stderr: null, // JDoodle mixes stderr into output
-              compileOutput: null, 
-              statusDescription: result.statusCode === 200 ? "Success" : "Error",
+              stdout,
+              stderr,
+              compileOutput: null,
+              statusDescription: isError ? "Runtime Error" : "Accepted",
               statusId: result.statusCode,
-              time: result.cpuTime || "0",
-              memory: result.memory || "0",
+              time: timeVal,
+              memory: memoryVal,
             },
           };
         } else {

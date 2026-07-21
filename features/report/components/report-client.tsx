@@ -3,6 +3,82 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getScoreColor } from "@/lib/utils";
+import { FeedbackButton } from "@/features/feedback/components/feedback-button";
+import { MessageContent } from "@/features/interview/components/message-content";
+
+// ─── Staged Report Progress ─────────────────
+
+const REPORT_STAGES = [
+  { label: "Analyzing transcript", duration: 3000 },
+  { label: "Evaluating code quality", duration: 3000 },
+  { label: "Scoring communication", duration: 3000 },
+  { label: "Generating recommendations", duration: 3000 },
+  { label: "Finalizing report", duration: 6000 },
+];
+
+function ReportProgress() {
+  const [currentStage, setCurrentStage] = useState(0);
+
+  useEffect(() => {
+    if (currentStage >= REPORT_STAGES.length - 1) return;
+
+    const timer = setTimeout(() => {
+      setCurrentStage((s) => Math.min(s + 1, REPORT_STAGES.length - 1));
+    }, REPORT_STAGES[currentStage].duration);
+
+    return () => clearTimeout(timer);
+  }, [currentStage]);
+
+  const progress = ((currentStage + 1) / REPORT_STAGES.length) * 100;
+
+  return (
+    <div className="mt-10 flex flex-col items-center justify-center py-16">
+      {/* Spinner */}
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-foreground" />
+
+      {/* Stage label */}
+      <p className="mt-4 text-sm text-foreground font-medium">
+        {REPORT_STAGES[currentStage].label}...
+      </p>
+
+      {/* Progress bar */}
+      <div className="mt-4 w-64 h-1.5 rounded-full bg-secondary overflow-hidden">
+        <div
+          className="h-full rounded-full bg-foreground/60 transition-all duration-700 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {/* Stage indicators */}
+      <div className="mt-4 flex flex-col gap-1.5">
+        {REPORT_STAGES.map((stage, i) => (
+          <div key={stage.label} className="flex items-center gap-2 text-xs">
+            {i < currentStage ? (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : i === currentStage ? (
+              <span className="h-3 w-3 rounded-full border-2 border-foreground/60 animate-pulse" />
+            ) : (
+              <span className="h-3 w-3 rounded-full border border-muted-foreground/30" />
+            )}
+            <span
+              className={
+                i < currentStage
+                  ? "text-emerald-400"
+                  : i === currentStage
+                    ? "text-foreground"
+                    : "text-muted-foreground/40"
+              }
+            >
+              {stage.label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface ReportData {
   overallScore: number;
@@ -15,6 +91,8 @@ interface ReportData {
   weaknesses: string[];
   suggestions: string[];
   summary: string;
+  nextSteps?: string[];
+  transcriptAnnotations?: { messageIndex: number; tag: string; rationale: string }[];
 }
 
 interface ReportClientProps {
@@ -29,6 +107,7 @@ interface ReportClientProps {
   };
   report: ReportData | null;
   messageCount: number;
+  messages?: { role: string; content: string; createdAt: Date }[];
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -49,6 +128,7 @@ export function ReportClient({
   interview,
   report: initialReport,
   messageCount,
+  messages = [],
 }: ReportClientProps) {
   const [report, setReport] = useState<ReportData | null>(initialReport);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -111,15 +191,10 @@ export function ReportClient({
         </div>
       </div>
 
-      {/* Loading state */}
-      {isGenerating && (
-        <div className="mt-10 flex flex-col items-center justify-center py-16">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-foreground" />
-          <p className="mt-4 text-sm text-muted-foreground animate-pulse">
-            Generating your report...
-          </p>
-        </div>
-      )}
+      <FeedbackButton />
+
+      {/* Loading state — staged progress */}
+      {isGenerating && <ReportProgress />}
 
       {/* Error state */}
       {error && (
@@ -272,13 +347,87 @@ export function ReportClient({
             </div>
           </div>
 
+          {/* Actionable Next Steps */}
+          {report.nextSteps && report.nextSteps.length > 0 && (
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-purple-400">
+                Actionable Next Steps
+              </h2>
+              <div className="flex flex-col gap-2">
+                {report.nextSteps.map((step, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-purple-400">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                    <span className="text-foreground/80">{step}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Transcript Annotations */}
+          {messages.length > 0 && (
+            <div className="mt-6 border-t border-border pt-6">
+              <h2 className="mb-4 text-sm font-semibold">
+                Annotated Interview Transcript
+              </h2>
+              <div className="flex flex-col gap-4 rounded-xl border border-border p-4 bg-muted/20 h-[500px] overflow-y-auto">
+                {messages.map((msg, i) => {
+                  const annotation = report.transcriptAnnotations?.find(
+                    (a) => a.messageIndex === i
+                  );
+                  const isAssistant = msg.role === "assistant";
+
+                  return (
+                    <div
+                      key={i}
+                      className={`flex flex-col max-w-[85%] ${
+                        isAssistant ? "self-start" : "self-end"
+                      }`}
+                    >
+                      <div
+                        className={`rounded-xl px-4 py-3 text-sm ${
+                          isAssistant
+                            ? "bg-secondary text-secondary-foreground"
+                            : "bg-primary text-primary-foreground"
+                        }`}
+                      >
+                        <MessageContent content={msg.content} />
+                      </div>
+                      {annotation && (
+                        <div className="mt-2 flex items-start gap-2 text-xs p-2 rounded-md border border-purple-500/30 bg-purple-500/10 text-purple-200 w-fit">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" x2="12" y1="8" y2="12" />
+                            <line x1="12" x2="12.01" y1="16" y2="16" />
+                          </svg>
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{annotation.tag}</span>
+                            <span className="opacity-90">{annotation.rationale}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
-          <div className="flex items-center gap-3 border-t border-border pt-6">
+          <div className="flex items-center gap-3 border-t border-border pt-6 mt-4">
             <Link
               href="/dashboard"
               className="h-9 rounded-md bg-secondary px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary/80 inline-flex items-center"
             >
               Back to Dashboard
+            </Link>
+            <Link
+              href="/dashboard"
+              className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 inline-flex items-center gap-1.5"
+            >
+              Start New Interview
             </Link>
           </div>
         </div>

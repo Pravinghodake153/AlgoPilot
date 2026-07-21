@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useInterviewStore, type TranscriptMessage } from "@/features/interview/store/interview-store";
 import { ProblemPanel } from "./problem-panel";
 import { ConversationPanel } from "./conversation-panel";
 import { TextInput } from "./text-input";
 import { VoiceControls } from "./voice-controls";
 import { AIAvatar } from "./ai-avatar";
-import { Timer } from "./timer";
 import { InterviewNav } from "./interview-nav";
 import { CodeEditor } from "@/features/editor/components/code-editor";
 import { EditorControls } from "@/features/editor/components/editor-controls";
 import { VoiceInput } from "./voice-input";
+import { HintButton } from "./hint-button";
+import { InterviewLobby } from "./interview-lobby";
+import { ResizableSplitter } from "@/components/resizable-splitter";
 
 import { useRouter } from "next/navigation";
+import { speak } from "@/hooks/use-web-speech";
 
 interface InterviewClientProps {
   interview: {
@@ -25,20 +28,15 @@ interface InterviewClientProps {
     problemTitle: string;
     problemDescription: string;
     code: string;
+    startedAt: number | null;
   };
   existingMessages: TranscriptMessage[];
 }
 
 /**
- * Main interview layout — 70/30 split.
- * Left: Problem description + Monaco code editor
- * Right: AI interviewer panel (avatar, transcript, controls)
- *
- * Per UI/UX spec:
- * - Left panel (editor + problem): 70%
- * - Right panel (AI interviewer): 30%
- * - Allow the divider to be resizable.
- * - The coding editor should always be the primary focus.
+ * Main interview layout — flexible, resizable panels.
+ * Supports horizontal (side-by-side) and vertical (stacked) layouts.
+ * Panels (problem, AI chat) are collapsible for a minimal interview experience.
  */
 export function InterviewClient({
   interview,
@@ -48,6 +46,17 @@ export function InterviewClient({
   const initInterview = useInterviewStore((s) => s.initInterview);
   const mode = useInterviewStore((s) => s.mode);
   const status = useInterviewStore((s) => s.status);
+  const layoutMode = useInterviewStore((s) => s.layoutMode);
+  const showProblem = useInterviewStore((s) => s.showProblem);
+  const showAIPanel = useInterviewStore((s) => s.showAIPanel);
+  const editorSplitPercent = useInterviewStore((s) => s.editorSplitPercent);
+  const problemSplitPercent = useInterviewStore((s) => s.problemSplitPercent);
+  const setEditorSplitPercent = useInterviewStore((s) => s.setEditorSplitPercent);
+  const setProblemSplitPercent = useInterviewStore((s) => s.setProblemSplitPercent);
+
+  const setStatus = useInterviewStore((s) => s.setStatus);
+  const setTimerActive = useInterviewStore((s) => s.setTimerActive);
+  const [lobbyCompleted, setLobbyCompleted] = useState(false);
 
   // Redirect to report page when interview is completed
   useEffect(() => {
@@ -58,6 +67,17 @@ export function InterviewClient({
 
   // Initialize the store on mount
   useEffect(() => {
+    let computedTime: number | undefined = undefined;
+    if (interview.startedAt && interview.status === "in_progress") {
+      const elapsedMs = Date.now() - interview.startedAt;
+      const totalMs = interview.duration * 60 * 1000;
+      computedTime = Math.max(0, Math.floor((totalMs - elapsedMs) / 1000));
+    } else if (interview.status === "setup") {
+      computedTime = interview.duration * 60;
+    }
+
+    const isResuming = existingMessages.length > 0;
+
     initInterview({
       interviewId: interview.id,
       language: interview.language,
@@ -66,12 +86,38 @@ export function InterviewClient({
       problemTitle: interview.problemTitle,
       problemDescription: interview.problemDescription,
       code: interview.code,
+      status: isResuming ? "in_progress" : "setup",
+      timeRemainingSeconds: computedTime,
     });
 
     // Restore existing messages
-    if (existingMessages.length > 0) {
+    if (isResuming) {
       useInterviewStore.setState({ messages: existingMessages });
-    } else {
+    }
+
+    return () => {
+      useInterviewStore.getState().reset();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle start/resume when lobby finishes
+  const handleLobbyReady = () => {
+    setLobbyCompleted(true);
+    setStatus("in_progress");
+    setTimerActive(true);
+
+    // Prime speech synthesis on user gesture
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        const prime = new SpeechSynthesisUtterance("");
+        window.speechSynthesis.speak(prime);
+      } catch (e) {
+        console.error("Failed to prime SpeechSynthesis:", e);
+      }
+    }
+
+    if (existingMessages.length === 0) {
       // Auto-start: get AI's opening message
       async function startInterview() {
         try {
@@ -81,77 +127,165 @@ export function InterviewClient({
           if (res.ok) {
             const data = await res.json();
             useInterviewStore.getState().addMessage("assistant", data.message);
+
+            const currentStore = useInterviewStore.getState();
+            if (currentStore.mode === "voice" && !currentStore.isSpeakerMuted) {
+              currentStore.setAIState("speaking");
+              speak(data.message, {
+                rate: 1.0,
+                onEnd: () => {
+                  currentStore.setAIState("listening");
+                },
+                onError: () => {
+                  currentStore.setAIState("listening");
+                },
+              });
+            }
           }
         } catch (error) {
           console.error("Failed to start interview:", error);
-          useInterviewStore
-            .getState()
-            .addMessage(
-              "assistant",
-              `Hi, I'm Alex. Welcome to your ${interview.difficulty} coding interview. Take a moment to read the problem, and when you're ready, share your initial thoughts.`
-            );
+          const fallbackMsg = `Hi, I'm Alex. Welcome to your ${interview.difficulty} coding interview. Take a moment to read the problem, and when you're ready, share your initial thoughts.`;
+          useInterviewStore.getState().addMessage("assistant", fallbackMsg);
+
+          const currentStore = useInterviewStore.getState();
+          if (currentStore.mode === "voice" && !currentStore.isSpeakerMuted) {
+            currentStore.setAIState("speaking");
+            speak(fallbackMsg, {
+              rate: 1.0,
+              onEnd: () => {
+                currentStore.setAIState("listening");
+              },
+              onError: () => {
+                currentStore.setAIState("listening");
+              },
+            });
+          }
         }
       }
       startInterview();
     }
+  };
 
-    return () => {
-      useInterviewStore.getState().reset();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ─── Editor Panel (problem + code editor + controls) ──────
+
+  const editorPanel = (
+    <div className={`flex flex-1 overflow-hidden ${layoutMode === "horizontal" ? "flex-row" : "flex-col"}`}>
+      {/* Problem description — collapsible */}
+      {showProblem && (
+        <>
+          <div
+            className={`overflow-auto border-border ${layoutMode === "horizontal" ? "border-r" : "border-b"}`}
+            style={
+              layoutMode === "horizontal"
+                ? { width: `${problemSplitPercent}%` }
+                : { height: `${problemSplitPercent}%` }
+            }
+          >
+            <ProblemPanel />
+          </div>
+          <ResizableSplitter
+            splitPercent={problemSplitPercent}
+            onResize={setProblemSplitPercent}
+            direction={layoutMode === "horizontal" ? "horizontal" : "vertical"}
+            minFirst={15}
+            maxFirst={60}
+          />
+        </>
+      )}
+
+      {/* Monaco Code Editor */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <CodeEditor />
+
+        {/* Run Code + Submit + Hint + Console */}
+        <EditorControls>
+          <HintButton />
+        </EditorControls>
+      </div>
+    </div>
+  );
+
+  // ─── AI Panel (avatar, transcript, input) ─────────────────
+
+  const aiPanel = showAIPanel ? (
+    <div className="flex flex-col overflow-hidden" style={{ width: `${100 - editorSplitPercent}%` }}>
+      {/* AI Avatar */}
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <AIAvatar />
+      </div>
+
+      {/* Conversation Transcript */}
+      <ConversationPanel />
+
+      {/* Input Controls */}
+      {status === "in_progress" && (
+        <>
+          {mode === "text" && <TextInput />}
+          {mode === "voice" && <VoiceInput />}
+          <VoiceControls />
+        </>
+      )}
+
+      {/* Completed state */}
+      {status === "completed" && (
+        <div className="flex items-center justify-center border-t border-border px-4 py-4">
+          <p className="text-sm text-muted-foreground">
+            Interview ended. Generating report...
+          </p>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  // ─── Floating chat bubble when AI panel is hidden ─────────
+
+  const unreadBubble = !showAIPanel ? (
+    <button
+      onClick={() => useInterviewStore.getState().setShowAIPanel(true)}
+      className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-500 text-white shadow-lg hover:bg-blue-600 transition-colors cursor-pointer"
+      aria-label="Show AI panel"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    </button>
+  ) : null;
+
+  if (!lobbyCompleted) {
+    return <InterviewLobby onReady={handleLobbyReady} />;
+  }
+
+  // ─── Layout Render ────────────────────────────────────────
 
   return (
     <div className="flex h-screen flex-col">
       {/* Top Navigation */}
       <InterviewNav />
 
-      {/* Main Content — 70/30 split */}
+      {/* Main Content (Always Editor on Left, AI on Right) */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel (70%) — Problem + Editor */}
-        <div className="flex w-[70%] flex-col border-r border-border">
-          {/* Problem description */}
-          <div className="h-[40%] overflow-y-auto border-b border-border">
-            <ProblemPanel />
-          </div>
-
-          {/* Monaco Code Editor */}
-          <CodeEditor />
-
-          {/* Run Code + Submit + Console */}
-          <EditorControls />
+        <div
+          className="flex flex-col overflow-hidden border-r border-border"
+          style={{ width: showAIPanel ? `${editorSplitPercent}%` : "100%" }}
+        >
+          {editorPanel}
         </div>
 
-        {/* Right Panel (30%) — AI Interviewer */}
-        <div className="flex w-[30%] flex-col">
-          {/* AI Avatar + Timer */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <AIAvatar />
-            <Timer />
-          </div>
+        {showAIPanel && (
+          <ResizableSplitter
+            splitPercent={editorSplitPercent}
+            onResize={setEditorSplitPercent}
+            direction="horizontal"
+            minFirst={40}
+            maxFirst={85}
+          />
+        )}
 
-          {/* Conversation Transcript */}
-          <ConversationPanel />
-
-          {/* Input Controls */}
-          {status === "in_progress" && (
-            <>
-              {mode === "text" && <TextInput />}
-              {mode === "voice" && <VoiceInput />}
-              <VoiceControls />
-            </>
-          )}
-
-          {/* Completed state */}
-          {status === "completed" && (
-            <div className="flex items-center justify-center border-t border-border px-4 py-4">
-              <p className="text-sm text-muted-foreground">
-                Interview ended. Generating report...
-              </p>
-            </div>
-          )}
-        </div>
+        {aiPanel}
       </div>
+
+      {/* Floating bubble when AI panel is hidden */}
+      {unreadBubble}
     </div>
   );
 }

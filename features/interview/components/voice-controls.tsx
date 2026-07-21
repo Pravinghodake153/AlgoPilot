@@ -53,7 +53,12 @@ export function VoiceControls() {
 
         {/* Speaker toggle */}
         <button
-          onClick={toggleSpeaker}
+          onClick={() => {
+            toggleSpeaker();
+            if (isSpeakerMuted && typeof window !== "undefined" && "speechSynthesis" in window) {
+              try { window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
+            }
+          }}
           className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors cursor-pointer ${
             isSpeakerMuted
               ? "text-red-400 hover:bg-red-400/10"
@@ -90,7 +95,12 @@ export function VoiceControls() {
           Text
         </button>
         <button
-          onClick={() => setMode("voice")}
+          onClick={() => {
+            setMode("voice");
+            if (typeof window !== "undefined" && "speechSynthesis" in window) {
+              try { window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
+            }
+          }}
           className={`h-7 rounded-r-md px-3 text-xs font-medium transition-colors cursor-pointer ${
             mode === "voice"
               ? "bg-foreground text-background"

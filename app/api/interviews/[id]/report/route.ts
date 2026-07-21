@@ -67,10 +67,15 @@ export async function POST(req: Request, context: RouteContext) {
     // Build the evaluation prompt
     const transcript = interview.messages
       .map(
-        (m) =>
-          `${m.role === "assistant" ? "Interviewer" : "Candidate"}: ${m.content}`
+        (m, i) =>
+          `[Msg ${i}] ${m.role === "assistant" ? "Interviewer" : "Candidate"}: ${m.content}`
       )
       .join("\n");
+
+    // Count hints used (tracked via special messages in transcript)
+    const hintsUsed = interview.messages.filter(
+      (m) => m.role === "user" && m.content.includes("[Hint requested")
+    ).length;
 
     const evaluationMessages: ChatMessage[] = [
       { role: "system", content: buildReportSystemPrompt() },
@@ -81,6 +86,7 @@ export async function POST(req: Request, context: RouteContext) {
 PROBLEM: ${interview.problemTitle} (${interview.difficulty})
 LANGUAGE: ${interview.language}
 DURATION: ${interview.duration} minutes
+HINTS USED: ${hintsUsed}${hintsUsed > 0 ? " (each hint should reduce the problem-solving score by ~5 points)" : ""}
 
 TRANSCRIPT:
 ${transcript}
@@ -101,11 +107,12 @@ Generate the evaluation report as JSON.`,
         maxTokens: 1024,
       });
 
-      // Parse JSON from response (handle potential markdown wrapping)
-      const jsonStr = aiResponse
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "")
-        .trim();
+      // Robust JSON extraction
+      let jsonStr = aiResponse.trim();
+      const match = jsonStr.match(/\{[\s\S]*\}/);
+      if (match) {
+        jsonStr = match[0];
+      }
       reportData = JSON.parse(jsonStr);
     } catch {
       // Fallback report if AI fails
@@ -140,6 +147,8 @@ Generate the evaluation report as JSON.`,
         weaknesses: reportData.weaknesses,
         suggestions: reportData.suggestions,
         summary: reportData.summary,
+        nextSteps: reportData.nextSteps || [],
+        transcriptAnnotations: reportData.transcriptAnnotations || [],
       },
     });
 

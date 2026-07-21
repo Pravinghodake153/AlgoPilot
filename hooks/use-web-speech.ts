@@ -21,17 +21,19 @@ export function useWebSpeech({
   language = "en-US",
 }: UseWebSpeechOptions) {
   const [isListening, setIsListening] = useState(false);
-  const [isSupported, setIsSupported] = useState(false);
+  const isSupported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldBeListeningRef = useRef(false);
+  const isPausedRef = useRef(false);
 
-  // Check support on mount
+  // Store callbacks in refs to avoid stale closures without causing re-renders/re-inits
+  const onResultRef = useRef(onResult);
+  const onErrorRef = useRef(onError);
+
   useEffect(() => {
-    const supported =
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-    setIsSupported(supported);
-  }, []);
+    onResultRef.current = onResult;
+    onErrorRef.current = onError;
+  }, [onResult, onError]);
 
   // Initialize recognition
   const initRecognition = useCallback(() => {
@@ -50,11 +52,14 @@ export function useWebSpeech({
     recognition.lang = language;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // If manually muted/paused, ignore result
+      if (isPausedRef.current) return;
+
       const last = event.results[event.results.length - 1];
       if (last.isFinal) {
         const transcript = last[0].transcript.trim();
         if (transcript) {
-          onResult(transcript);
+          onResultRef.current(transcript);
         }
       }
     };
@@ -62,7 +67,7 @@ export function useWebSpeech({
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("Speech recognition error:", event.error);
       if (event.error !== "aborted" && event.error !== "no-speech") {
-        onError?.(event.error);
+        onErrorRef.current?.(event.error);
       }
       // Only mark as not listening if we shouldn't be
       if (!shouldBeListeningRef.current) {
@@ -71,8 +76,8 @@ export function useWebSpeech({
     };
 
     recognition.onend = () => {
-      // Auto-restart if we should still be listening
-      if (shouldBeListeningRef.current) {
+      // Auto-restart if we should still be listening AND we are not paused
+      if (shouldBeListeningRef.current && !isPausedRef.current) {
         try {
           recognition.start();
         } catch {
@@ -85,7 +90,7 @@ export function useWebSpeech({
     };
 
     return recognition;
-  }, [continuous, language, onResult, onError]);
+  }, [continuous, language]);
 
   const startListening = useCallback(() => {
     if (!isSupported) {
@@ -105,6 +110,7 @@ export function useWebSpeech({
 
     recognitionRef.current = recognition;
     shouldBeListeningRef.current = true;
+    isPausedRef.current = false;
 
     try {
       recognition.start();
@@ -118,6 +124,7 @@ export function useWebSpeech({
 
   const stopListening = useCallback(() => {
     shouldBeListeningRef.current = false;
+    isPausedRef.current = false;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
@@ -132,11 +139,13 @@ export function useWebSpeech({
    * Call resumeListening() to restart it.
    */
   const pauseListening = useCallback(() => {
+    isPausedRef.current = true;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
       } catch { /* ignore */ }
     }
+    setIsListening(false);
   }, []);
 
   /**
@@ -144,6 +153,8 @@ export function useWebSpeech({
    */
   const resumeListening = useCallback(() => {
     if (!shouldBeListeningRef.current || !isSupported) return;
+
+    isPausedRef.current = false;
 
     // Stop existing first
     if (recognitionRef.current) {
@@ -188,6 +199,11 @@ export function useWebSpeech({
   };
 }
 
+// Prime the voices loading asynchronously at import time
+if (typeof window !== "undefined" && "speechSynthesis" in window) {
+  window.speechSynthesis.getVoices();
+}
+
 /**
  * Speak text aloud using Web Speech Synthesis API ($0 cost).
  * Includes workaround for Chrome's cancel-before-speak bug.
@@ -211,31 +227,54 @@ export function speak(
     return;
   }
 
-  // Cancel any current speech first
-  window.speechSynthesis.cancel();
+  // Cancel only if currently speaking or pending to avoid locked states
+  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    window.speechSynthesis.cancel();
+  }
+
+  // If paused, resume
+  if (window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
+  }
 
   // Chrome bug workaround: after cancel(), there's a brief window where
-  // speak() is silently ignored. Use a small delay to let it settle.
+  // speak() is silently ignored. Use a slightly longer delay to let it settle.
   setTimeout(() => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = options?.rate ?? 1.0;
     utterance.pitch = options?.pitch ?? 1.0;
     utterance.lang = options?.lang ?? "en-US";
 
-    // Try to select a voice for the language
     const voices = window.speechSynthesis.getVoices();
     const targetLang = options?.lang ?? "en-US";
-    const matchedVoice = voices.find((v) => v.lang.startsWith(targetLang.split("-")[0]));
-    if (matchedVoice) {
-      utterance.voice = matchedVoice;
+    
+    // Only search/override voice if it's not standard en-US (to let browser choose default premium voice)
+    if (targetLang !== "en-US") {
+      const matchedVoice = voices.find((v) => v.lang === targetLang) || 
+                           voices.find((v) => v.lang.startsWith(targetLang.split("-")[0]));
+      if (matchedVoice) {
+        utterance.voice = matchedVoice;
+      }
     }
 
-    utterance.onend = () => {
+    let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+      }
       (window as any)._currentUtterance = null;
+    };
+
+    utterance.onend = () => {
+      cleanup();
       options?.onEnd?.();
     };
-    utterance.onerror = () => {
-      (window as any)._currentUtterance = null;
+
+    utterance.onerror = (event) => {
+      cleanup();
+      console.error("SpeechSynthesis error:", event);
       options?.onError?.();
     };
 
@@ -246,26 +285,15 @@ export function speak(
 
     // Chrome pause/resume workaround for long texts (> ~15 seconds)
     // Chrome silently stops speaking after ~15s. This keeps it alive.
-    const keepAlive = setInterval(() => {
+    keepAliveInterval = setInterval(() => {
       if (!window.speechSynthesis.speaking) {
-        clearInterval(keepAlive);
+        cleanup();
         return;
       }
       window.speechSynthesis.pause();
       window.speechSynthesis.resume();
     }, 10000);
-
-    utterance.onend = () => {
-      clearInterval(keepAlive);
-      (window as any)._currentUtterance = null;
-      options?.onEnd?.();
-    };
-    utterance.onerror = () => {
-      clearInterval(keepAlive);
-      (window as any)._currentUtterance = null;
-      options?.onError?.();
-    };
-  }, 100);
+  }, 150);
 }
 
 /**
@@ -274,6 +302,9 @@ export function speak(
 export function stopSpeaking(): void {
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     (window as any)._currentUtterance = null;
   }
 }

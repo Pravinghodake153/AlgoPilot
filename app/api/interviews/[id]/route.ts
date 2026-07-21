@@ -43,7 +43,18 @@ export async function GET(req: Request, context: RouteContext) {
       );
     }
 
-    return NextResponse.json({ interview });
+    // Re-combine thinking and content for the frontend UI to render correctly
+    const formattedMessages = interview.messages.map((m) => ({
+      ...m,
+      content: m.thinking ? `\n*Thinking...*\n${m.thinking}\n\n---\n\n${m.content}` : m.content,
+    }));
+
+    return NextResponse.json({ 
+      interview: {
+        ...interview,
+        messages: formattedMessages
+      }
+    });
   } catch (error) {
     console.error("Interview fetch error:", error);
     return NextResponse.json(
