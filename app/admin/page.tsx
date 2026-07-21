@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -9,12 +9,15 @@ export default function AdminPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [provider, setProvider] = useState("gemini");
   const [model, setModel] = useState("gemini-2.5-flash");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
 
   useEffect(() => {
     async function fetchData() {
@@ -26,9 +29,11 @@ export default function AdminPage() {
         const data = await res.json();
         setSettings(data.settings);
         setFeedbacks(data.feedbacks || []);
+        setUsers(data.users || []);
         
         if (data.settings.DEFAULT_AI_PROVIDER) setProvider(data.settings.DEFAULT_AI_PROVIDER);
         if (data.settings.DEFAULT_AI_MODEL) setModel(data.settings.DEFAULT_AI_MODEL);
+        if (data.settings.GEMINI_API_KEY) setGeminiApiKey(data.settings.GEMINI_API_KEY);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -45,7 +50,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, model }),
+        body: JSON.stringify({ provider, model, geminiApiKey }),
       });
       if (!res.ok) throw new Error("Failed to save settings");
       alert("Settings saved successfully!");
@@ -54,6 +59,31 @@ export default function AdminPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleDeleteUser = async (userId: string, name: string) => {
+    if (!confirm(`Are you sure you want to completely delete ${name || "this user"} and all their interview data? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin?userId=${userId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete user");
+      
+      setUsers(users.filter(u => u.id !== userId));
+      alert("User deleted successfully.");
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const toggleUserExpansion = (userId: string) => {
+    setExpandedUsers(prev => ({
+      ...prev,
+      [userId]: !prev[userId]
+    }));
   };
 
   if (isLoading) {
@@ -118,6 +148,20 @@ export default function AdminPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Make sure the model matches the selected provider.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Gemini API Key</label>
+                <input
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(e) => setGeminiApiKey(e.target.value)}
+                  placeholder="Enter custom Gemini API key..."
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Overrides default environment key when set.
                 </p>
               </div>
 
@@ -190,6 +234,111 @@ export default function AdminPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Users & Interviews Table */}
+      <div className="mt-8 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          Registered Users
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-foreground font-medium">
+            {users.length}
+          </span>
+        </h2>
+
+        {users.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center border border-dashed border-border rounded-lg">
+            No users registered yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs text-muted-foreground uppercase bg-secondary/50 rounded-t-lg">
+                <tr>
+                  <th className="px-4 py-3 rounded-tl-lg">User</th>
+                  <th className="px-4 py-3">Joined</th>
+                  <th className="px-4 py-3 text-center">Interviews</th>
+                  <th className="px-4 py-3 rounded-tr-lg text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {users.map((user) => (
+                  <React.Fragment key={user.id}>
+                    <tr className="hover:bg-secondary/20 transition-colors">
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => toggleUserExpansion(user.id)}
+                            className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expandedUsers[user.id] ? "rotate-90" : ""}`}>
+                              <polyline points="9 18 15 12 9 6" />
+                            </svg>
+                          </button>
+                          <div>
+                            <div className="font-medium text-foreground">{user.name || "Unknown"}</div>
+                            <div className="text-xs text-muted-foreground">{user.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-muted-foreground">
+                        {format(new Date(user.createdAt), "MMM d, yyyy")}
+                      </td>
+                      <td className="px-4 py-4 text-center font-medium">
+                        {user._count?.interviews || 0}
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          onClick={() => handleDeleteUser(user.id, user.name)}
+                          className="text-red-500 hover:text-red-600 hover:bg-red-500/10 px-3 py-1.5 rounded-md transition-colors text-xs font-medium cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedUsers[user.id] && user.interviews && user.interviews.length > 0 && (
+                      <tr className="bg-secondary/10">
+                        <td colSpan={4} className="p-4">
+                          <div className="pl-6 border-l-2 border-primary/20 ml-2">
+                            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Interview History</h4>
+                            <div className="grid gap-2">
+                              {user.interviews.map((interview: any) => (
+                                <div key={interview.id} className="flex items-center justify-between p-3 rounded-md bg-background border border-border/50">
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-sm">{interview.problemTitle}</span>
+                                    <span className="text-xs text-muted-foreground">{format(new Date(interview.createdAt), "MMM d, yyyy • h:mm a")}</span>
+                                  </div>
+                                  <div className="flex items-center gap-4">
+                                    <span className="text-xs capitalize px-2 py-1 bg-secondary rounded-md">{interview.difficulty}</span>
+                                    <span className={`text-xs px-2 py-1 rounded-md ${interview.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                      {interview.status}
+                                    </span>
+                                    {interview.report ? (
+                                      <div className="flex flex-col items-end">
+                                        <span className="text-sm font-bold">{interview.report.overallScore}/100</span>
+                                        <span className={`text-[10px] ${interview.report.isSolved ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                          {interview.report.isSolved ? 'Solved' : 'Not Solved'}
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">No report</span>
+                                    )}
+                                    <Link href={`/report/${interview.id}`} target="_blank" className="text-primary hover:underline text-xs ml-2">
+                                      View &rarr;
+                                    </Link>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -38,18 +38,10 @@ export default async function ReportPage({ params }: ReportPageProps) {
     redirect("/");
   }
 
-  const isOwner = user?.id === interview.userId;
-  const isPublic = interview.report?.isPublic ?? false;
-
-  if (!isOwner && !isPublic) {
-    // If not owner and not public, deny access
-    redirect("/");
-  }
+  // Reports are now fully public by default. Anyone with the link can view them.
 
   return (
     <ReportClient
-      isOwner={isOwner}
-      isPublic={isPublic}
       interview={{
         id: interview.id,
         problemTitle: interview.problemTitle,

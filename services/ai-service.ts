@@ -21,6 +21,7 @@ export async function getProviderConfig() {
   // Default fallbacks from environment
   let activeProvider = "gemini";
   let activeModel = "gemini-2.5-flash";
+  let geminiKey = process.env.GEMINI_API_KEY || "";
 
   try {
     const providerSetting = await prisma.systemSetting.findUnique({ where: { key: "DEFAULT_AI_PROVIDER" } });
@@ -28,6 +29,9 @@ export async function getProviderConfig() {
 
     const modelSetting = await prisma.systemSetting.findUnique({ where: { key: "DEFAULT_AI_MODEL" } });
     if (modelSetting) activeModel = modelSetting.value;
+
+    const geminiKeySetting = await prisma.systemSetting.findUnique({ where: { key: "GEMINI_API_KEY" } });
+    if (geminiKeySetting && geminiKeySetting.value) geminiKey = geminiKeySetting.value;
   } catch (e) {
     console.warn("Failed to fetch SystemSetting from Prisma, using defaults", e);
   }
@@ -36,7 +40,7 @@ export async function getProviderConfig() {
     activeProvider,
     activeModel,
     gemini: {
-      key: process.env.GEMINI_API_KEY || "",
+      key: geminiKey,
       url: "https://generativelanguage.googleapis.com/v1beta/openai",
     },
     openrouter: {

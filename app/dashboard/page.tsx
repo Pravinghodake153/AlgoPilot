@@ -1,4 +1,5 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { InterviewList } from "@/features/interview/components/interview-list";
 import { StartInterviewButton } from "@/features/interview/components/start-interview-button";
@@ -10,6 +11,17 @@ import { ProgressChart } from "@/features/dashboard/components/progress-chart";
  */
 export default async function DashboardPage() {
   const { userId: clerkId } = await auth();
+
+  if (!clerkId) redirect("/sign-in");
+
+  const clerk = await clerkClient();
+  const clerkUser = await clerk.users.getUser(clerkId);
+  const email = clerkUser.emailAddresses[0]?.emailAddress;
+  const isAdmin = email === (process.env.ADMIN_EMAIL || "ghodakepravin154@gmail.com");
+
+  if (isAdmin) {
+    redirect("/admin");
+  }
 
   // Fetch user's interviews from the database
   let interviews: Array<{

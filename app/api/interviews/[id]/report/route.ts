@@ -104,7 +104,7 @@ Generate the evaluation report as JSON.`,
     try {
       const aiResponse = await deepseekChat(evaluationMessages, {
         temperature: 0.3,
-        maxTokens: 1024,
+        maxTokens: 4096,
       });
 
       // Robust JSON extraction
@@ -114,7 +114,8 @@ Generate the evaluation report as JSON.`,
         jsonStr = match[0];
       }
       reportData = JSON.parse(jsonStr);
-    } catch {
+    } catch (parseError) {
+      console.error("AI Report generation failed. Falling back to default.", parseError);
       // Fallback report if AI fails
       reportData = {
         overallScore: 50,

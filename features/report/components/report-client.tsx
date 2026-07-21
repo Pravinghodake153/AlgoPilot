@@ -112,8 +112,6 @@ interface ReportClientProps {
   report: ReportData | null;
   messageCount: number;
   messages?: { role: string; content: string; createdAt: Date }[];
-  isOwner?: boolean;
-  isPublic?: boolean;
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -135,15 +133,12 @@ export function ReportClient({
   report: initialReport,
   messageCount,
   messages = [],
-  isOwner = true,
-  isPublic = false,
 }: ReportClientProps) {
   const [report, setReport] = useState<ReportData | null>(initialReport);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isPublicState, setIsPublicState] = useState(isPublic);
   const [showShareTooltip, setShowShareTooltip] = useState(false);
-  const [isToggling, setIsToggling] = useState(false);
+  const [showCode, setShowCode] = useState(false);
 
   // Auto-generate report if not present
   useEffect(() => {
@@ -170,26 +165,6 @@ export function ReportClient({
       setError("Failed to generate report. Please try again.");
     } finally {
       setIsGenerating(false);
-    }
-  }
-
-  async function handleTogglePublic() {
-    if (!isOwner) return;
-    setIsToggling(true);
-    try {
-      const res = await fetch(`/api/reports/${interview.id}/toggle-public`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isPublic: !isPublicState }),
-      });
-      if (!res.ok) throw new Error("Failed to toggle");
-      const data = await res.json();
-      setIsPublicState(data.isPublic);
-    } catch (e) {
-      console.error(e);
-      alert("Failed to update public status.");
-    } finally {
-      setIsToggling(false);
     }
   }
 
@@ -228,43 +203,26 @@ export function ReportClient({
           </div>
         </div>
         
-        {/* Share Button / Privacy Toggle */}
+        {/* Share Button */}
         <div className="flex items-center gap-3">
-          {isOwner && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mr-2">
-              <span className={isPublicState ? "text-emerald-500" : ""}>
-                {isPublicState ? "Public" : "Private"}
-              </span>
-              <button 
-                onClick={handleTogglePublic}
-                disabled={isToggling}
-                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isPublicState ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
-              >
-                <span className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${isPublicState ? 'translate-x-4' : 'translate-x-0'}`} />
-              </button>
-            </div>
-          )}
-
-          {(isPublicState || isOwner) && (
-            <div className="relative">
-              <button 
-                onClick={handleShare}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
-                  <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                  <polyline points="16 6 12 2 8 6" />
-                  <line x1="12" y1="2" x2="12" y2="15" />
-                </svg>
-                Share Score
-              </button>
-              {showShareTooltip && (
-                <div className="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-foreground px-2 py-1 text-xs text-background shadow-md">
-                  Link Copied!
-                </div>
-              )}
-            </div>
-          )}
+          <div className="relative">
+            <button 
+              onClick={handleShare}
+              className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                <polyline points="16 6 12 2 8 6" />
+                <line x1="12" y1="2" x2="12" y2="15" />
+              </svg>
+              Share Score
+            </button>
+            {showShareTooltip && (
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-foreground px-2 py-1 text-xs text-background shadow-md">
+                Link Copied!
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -291,7 +249,7 @@ export function ReportClient({
         <div className="mt-8 flex flex-col gap-8">
           
           {/* Advanced Metrics / Metadata */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Status</span>
               <div className="flex items-center gap-2">
@@ -317,17 +275,7 @@ export function ReportClient({
             </div>
 
             <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Time</span>
-              <span className="font-semibold font-mono text-foreground text-lg">{report.timeComplexity || "N/A"}</span>
-            </div>
-
-            <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Space</span>
-              <span className="font-semibold font-mono text-foreground text-lg">{report.spaceComplexity || "N/A"}</span>
-            </div>
-
-            <div className="flex flex-col rounded-xl border border-border p-4 bg-card">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Level</span>
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Estimated Level</span>
               <span className="font-semibold text-primary">{report.estimatedLevel || "Unknown"}</span>
             </div>
           </div>
@@ -489,11 +437,31 @@ export function ReportClient({
           {/* Transcript Annotations */}
           {messages.length > 0 && (
             <div className="mt-6 border-t border-border pt-6">
-              <h2 className="mb-4 text-sm font-semibold">
-                Annotated Interview Transcript
-              </h2>
-              <div className="flex flex-col gap-4 rounded-xl border border-border p-4 bg-muted/20 h-[500px] overflow-y-auto">
-                {messages.map((msg, i) => {
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold">
+                  Annotated Interview Transcript
+                </h2>
+                <button
+                  onClick={() => setShowCode(!showCode)}
+                  className="text-xs font-medium text-primary hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="16 18 22 12 16 6" />
+                    <polyline points="8 6 2 12 8 18" />
+                  </svg>
+                  {showCode ? "Hide Submitted Code" : "View Submitted Code"}
+                </button>
+              </div>
+
+              {showCode ? (
+                <div className="rounded-xl border border-border bg-[#1e1e1e] p-4 h-[500px] overflow-y-auto">
+                  <pre className="text-sm font-mono text-foreground/90 whitespace-pre-wrap">
+                    {interview.code || "// No code was submitted."}
+                  </pre>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4 rounded-xl border border-border p-4 bg-muted/20 h-[500px] overflow-y-auto">
+                  {messages.map((msg, i) => {
                   const annotation = report.transcriptAnnotations?.find(
                     (a) => a.messageIndex === i
                   );
@@ -532,6 +500,7 @@ export function ReportClient({
                   );
                 })}
               </div>
+              )}
             </div>
           )}
 

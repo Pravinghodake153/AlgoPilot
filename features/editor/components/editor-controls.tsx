@@ -33,6 +33,7 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
   const [activeTab, setActiveTab] = useState<"output" | "none">("none");
   const [retryCount, setRetryCount] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "done">("idle");
 
   const isDisabled = status !== "in_progress";
 
@@ -103,35 +104,47 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
   }
 
   async function handleSubmit() {
-    setIsSubmitting(true);
+    setSubmitStatus("submitting");
 
     try {
       // Save the code to the database
       const response = await fetch(`/api/interviews/${interviewId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, action: "submit" }),
+        body: JSON.stringify({ code, action: "save" }), // Just save, don't end
       });
 
       if (response.ok) {
-        setStatus("completed");
+        setSubmitStatus("done");
+        setTimeout(() => setSubmitStatus("idle"), 2000); // Revert after 2s
       } else {
         console.error("Failed to submit code: server error");
+        setSubmitStatus("idle");
       }
     } catch {
       console.error("Failed to submit code");
-    } finally {
-      setIsSubmitting(false);
+      setSubmitStatus("idle");
     }
   }
 
-  function handleSubmitClick() {
+  function handleEndInterviewClick() {
     setShowConfirm(true);
   }
 
-  function handleConfirmSubmit() {
+  async function handleConfirmEnd() {
     setShowConfirm(false);
-    handleSubmit();
+    
+    // Save the final code and end the interview
+    try {
+      await fetch(`/api/interviews/${interviewId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, action: "submit" }),
+      });
+      setStatus("completed");
+    } catch (e) {
+      console.error("Failed to end interview", e);
+    }
   }
 
   // Keyboard shortcuts
@@ -216,11 +229,27 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
         </button>
 
         <button
-          onClick={handleSubmitClick}
-          disabled={isSubmitting || isDisabled}
-          className="inline-flex h-8 items-center rounded-md bg-foreground px-4 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-40 cursor-pointer"
+          onClick={handleSubmit}
+          disabled={submitStatus !== "idle" || isDisabled}
+          className={`inline-flex h-8 items-center rounded-md px-4 text-xs font-medium transition-colors cursor-pointer ${
+            submitStatus === "done"
+              ? "bg-emerald-500 text-white hover:bg-emerald-600"
+              : "bg-secondary text-foreground hover:bg-secondary/80"
+          } disabled:opacity-40`}
         >
-          {isSubmitting ? "Submitting..." : "Submit"}
+          {submitStatus === "submitting"
+            ? "Submitting..."
+            : submitStatus === "done"
+            ? "Done"
+            : "Submit"}
+        </button>
+
+        <button
+          onClick={handleEndInterviewClick}
+          disabled={isDisabled}
+          className="inline-flex h-8 items-center rounded-md bg-red-500 px-4 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-40 cursor-pointer"
+        >
+          End Interview
         </button>
 
         {/* Save indicator */}
@@ -302,9 +331,9 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
             aria-hidden
           />
           <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-lg">
-            <h3 className="text-base font-semibold">Submit your solution?</h3>
+            <h3 className="text-base font-semibold">End Interview?</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              You won&apos;t be able to return to the editor after submitting. The interview will end and your report will be generated.
+              Are you sure you want to end the interview early? Your current code will be submitted and your evaluation report will be generated.
             </p>
             <div className="mt-5 flex items-center justify-end gap-3">
               <button
@@ -314,10 +343,10 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
                 Cancel
               </button>
               <button
-                onClick={handleConfirmSubmit}
-                className="h-9 rounded-md bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 cursor-pointer"
+                onClick={handleConfirmEnd}
+                className="h-9 rounded-md bg-red-500 px-5 text-sm font-medium text-white transition-colors hover:bg-red-600 cursor-pointer"
               >
-                Submit & End
+                End Interview
               </button>
             </div>
           </div>

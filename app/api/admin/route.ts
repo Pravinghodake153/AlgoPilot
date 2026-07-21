@@ -38,12 +38,34 @@ export async function GET() {
       },
     });
 
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        interviews: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            problemTitle: true,
+            difficulty: true,
+            createdAt: true,
+            status: true,
+            report: {
+              select: { overallScore: true, isSolved: true },
+            },
+          },
+        },
+        _count: {
+          select: { interviews: true },
+        },
+      },
+    });
+
     const settingsMap = settings.reduce((acc, s) => {
       acc[s.key] = s.value;
       return acc;
     }, {} as Record<string, string>);
 
-    return NextResponse.json({ settings: settingsMap, feedbacks });
+    return NextResponse.json({ settings: settingsMap, feedbacks, users });
   } catch (error) {
     console.error("Admin GET Error:", error);
     return NextResponse.json({ error: "Failed to fetch admin data" }, { status: 500 });
@@ -57,7 +79,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { provider, model } = body;
+    const { provider, model, geminiApiKey } = body;
 
     if (provider) {
       await prisma.systemSetting.upsert({
@@ -75,9 +97,42 @@ export async function POST(req: Request) {
       });
     }
 
+    if (geminiApiKey !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "GEMINI_API_KEY" },
+        update: { value: geminiApiKey },
+        create: { key: "GEMINI_API_KEY", value: geminiApiKey },
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin POST Error:", error);
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  if (!(await authorizeAdmin())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const url = new URL(req.url);
+    const userId = url.searchParams.get("userId");
+
+    if (!userId) {
+      return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    }
+
+    // Since schema has onDelete: Cascade, this will delete everything associated with the user
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Admin DELETE Error:", error);
+    return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
   }
 }
