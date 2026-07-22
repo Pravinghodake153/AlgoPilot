@@ -181,6 +181,8 @@ export async function POST(req: Request, context: RouteContext) {
               },
             });
 
+            console.log(`[AI-Service] ✅ Response successfully saved to DB and pasted for interview ${id} (${result.content.length} chars)`);
+
             // Save candidate's latest code snapshot
             if (liveCode) {
               await prisma.interview.update({

@@ -205,7 +205,6 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
         }
 
         setIsProcessingAudio(true);
-        setAIState("thinking");
 
         try {
           const formData = new FormData();
@@ -218,15 +217,18 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
           if (res.ok) {
             const data = await res.json();
             if (data.text && data.text.trim().length > 0) {
-               sendMessage(data.text);
+              console.log(`[Voice-Input] ✅ STT transcribed candidate speech: "${data.text.trim()}". Sending to chat...`);
+              sendMessage(data.text.trim());
             } else {
-               setAIState("idle"); 
+              console.warn("[Voice-Input] ⚠️ STT returned empty transcription (no speech detected)");
+              setErrorMessage("No clear speech detected. Please try recording again.");
+              setAIState("idle");
             }
           } else {
-             const err = await res.text();
-             setErrorMessage(`STT Failed (Backend Error)`);
-             console.error(err);
-             setAIState("idle");
+            const err = await res.text();
+            setErrorMessage("STT Failed (Backend Error)");
+            console.error("STT endpoint error:", err);
+            setAIState("idle");
           }
         } catch (e: any) {
           setErrorMessage(`Network error: ${e.message}`);
