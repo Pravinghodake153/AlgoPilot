@@ -80,6 +80,7 @@ export default function AdminPage() {
           deepseekApiKey,
           showAiThinking,
           ttsModel,
+          ttsSpeed,
         }),
       });
       if (!res.ok) throw new Error("Failed to save settings");

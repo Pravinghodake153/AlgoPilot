@@ -1,16 +1,29 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "ghodakepravin154@gmail.com";
+
+async function authorizeAdmin() {
+  const { userId } = await auth();
+  if (!userId) return false;
+
+  try {
+    const clerk = await clerkClient();
+    const user = await clerk.users.getUser(userId);
+    const email = user.emailAddresses[0]?.emailAddress;
+    return email === ADMIN_EMAIL;
+  } catch (error) {
+    console.error("Failed to authorize admin:", error);
+    return false;
+  }
+}
 
 export async function GET(req: Request) {
   try {
-    const { userId: clerkId } = await auth();
-    if (!clerkId) {
-      return new NextResponse("Unauthorized", { status: 401 });
+    if (!(await authorizeAdmin())) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Verify Admin (Optional: check your own logic, e.g. clerk metadata or known email)
-    // For now we'll trust any signed in user to access admin API based on existing admin routes
 
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
