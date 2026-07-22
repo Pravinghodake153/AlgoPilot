@@ -620,12 +620,10 @@ TIME BEHAVIOR (UNDER 5 MINUTES):
 
   if (violations.length > 0) {
     proctoringContext = `
-PROCTORING ALERTS & CANDIDATE CONDUCT:
-The candidate has committed the following proctoring violation(s):
+PROCTORING LOGS & CONDUCT AUDIT:
+Proctoring violations logged for candidate evaluation:
 ${violations.map((v) => `- ${v}`).join("\n")}
-
-CRITICAL INSTRUCTION FOR PROCTORING VIOLATIONS:
-At the very beginning of your next response, address these proctoring violation(s) with a firm but polite warning in MAXIMUM 1 SENTENCE (e.g., "Please keep your focus on the interview window and remain clearly visible in frame without switching tabs."). Then seamlessly continue with the technical interview.`;
+(Note: System-side malpractice alerts handle direct warnings. Focus purely on technical evaluation.)`;
   }
 
 const INDIAN_VOICE_NAME_MAP: Record<string, string> = {

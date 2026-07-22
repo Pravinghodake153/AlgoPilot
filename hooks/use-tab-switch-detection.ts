@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { useInterviewStore } from "@/features/interview/store/interview-store";
 
 interface UseTabSwitchDetectionOptions {
   enabled: boolean;
@@ -63,6 +64,13 @@ export function useTabSwitchDetection({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tabSwitchCount: nextCount }),
           }).catch((err) => console.error("Failed to sync tabSwitchCount to DB:", err));
+
+          // Auto-append System Malpractice Warning Card to Chat transcript
+          const warningText = `Proctoring Warning: Tab switch detected (${nextCount} recorded violation(s)). Please stay focused on the interview window.`;
+          useInterviewStore.getState().appendOrUpdateAssistantMessage(
+            `msg-warn-tab-${Date.now()}`,
+            warningText
+          );
 
           // Log the event
           fetch(`/api/events`, {
