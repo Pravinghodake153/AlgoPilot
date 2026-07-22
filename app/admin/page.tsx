@@ -27,6 +27,8 @@ export default function AdminPage() {
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [showAiThinking, setShowAiThinking] = useState(true);
+  const [ttsModel, setTtsModel] = useState("auto");
+  const [ttsSpeed, setTtsSpeed] = useState("1.0");
 
   useEffect(() => {
     async function fetchData() {
@@ -49,6 +51,8 @@ export default function AdminPage() {
         if (data.settings.OPENROUTER_API_KEY) setOpenrouterApiKey(data.settings.OPENROUTER_API_KEY);
         if (data.settings.DEEPSEEK_API_KEY) setDeepseekApiKey(data.settings.DEEPSEEK_API_KEY);
         if (data.settings.SHOW_AI_THINKING !== undefined) setShowAiThinking(data.settings.SHOW_AI_THINKING === "true");
+        if (data.settings.TTS_MODEL) setTtsModel(data.settings.TTS_MODEL);
+        if (data.settings.TTS_SPEED) setTtsSpeed(data.settings.TTS_SPEED);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -75,6 +79,7 @@ export default function AdminPage() {
           openrouterApiKey,
           deepseekApiKey,
           showAiThinking,
+          ttsModel,
         }),
       });
       if (!res.ok) throw new Error("Failed to save settings");
@@ -222,6 +227,51 @@ export default function AdminPage() {
                     }`}
                   />
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">TTS / Voice AI Settings</h2>
+            
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Default TTS Model</label>
+                <select
+                  value={ttsModel}
+                  onChange={(e) => setTtsModel(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="auto">⚡ Auto-detect (By Selected Voice Name)</option>
+                  <option value="hexgrad/kokoro-82m">Kokoro 82M (hexgrad/kokoro-82m)</option>
+                  <option value="minimax/speech-2.8-turbo">MiniMax 2.8 Turbo (minimax/speech-2.8-turbo)</option>
+                  <option value="google/gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (google/gemini-3.1-flash-tts-preview)</option>
+                  <option value="openai/tts-1">OpenAI TTS 1 (openai/tts-1)</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Auto-detect automatically routes each Indian voice (Aarav, Ananya, Arjun, Neer, etc.) to its proper model.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                <label className="text-sm font-medium">Speech Speed Multiplier</label>
+                <select
+                  value={ttsSpeed}
+                  onChange={(e) => setTtsSpeed(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="0.85">0.85x (Slower / Relaxed)</option>
+                  <option value="0.90">0.90x (Slightly Slower)</option>
+                  <option value="0.95">0.95x (Natural Conversational Pace)</option>
+                  <option value="1.0">1.00x (Standard / Normal Speed)</option>
+                  <option value="1.05">1.05x (Brisk Pace)</option>
+                  <option value="1.10">1.10x (Faster)</option>
+                  <option value="1.15">1.15x (Very Fast)</option>
+                  <option value="1.20">1.20x (Fastest)</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Controls the playback rate multiplier for all interviewer voices.
+                </p>
               </div>
             </div>
           </div>

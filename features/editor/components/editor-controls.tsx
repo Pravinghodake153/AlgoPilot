@@ -131,10 +131,18 @@ export function EditorControls({ children }: { children?: React.ReactNode }) {
     function handleKeyDown(e: KeyboardEvent) {
       const isMod = e.metaKey || e.ctrlKey;
 
+      // Ctrl/Cmd + Shift + Enter → Submit Interview Code
+      if (isMod && e.shiftKey && e.key === "Enter" && !isDisabled) {
+        e.preventDefault();
+        handleSubmit();
+        return;
+      }
+
       // Ctrl/Cmd + Enter → Run Code
-      if (isMod && e.key === "Enter" && !isDisabled && !isRunning) {
+      if (isMod && !e.shiftKey && e.key === "Enter" && !isDisabled && !isRunning) {
         e.preventDefault();
         handleRunCode();
+        return;
       }
 
       // Ctrl/Cmd + S → Prevent browser save (autosave handles it)

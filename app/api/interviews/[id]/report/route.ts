@@ -97,6 +97,10 @@ export async function POST(req: Request, context: RouteContext) {
       (m) => m.role === "user" && m.content.includes("[Hint requested")
     ).length;
 
+    const finalCodeSnapshot = interview.code && interview.code.trim().length > 0
+      ? interview.code.trim()
+      : "[No candidate code submitted / Editor empty]";
+
     const evaluationMessages: ChatMessage[] = [
       { role: "system", content: buildReportSystemPrompt() },
       {
@@ -108,37 +112,112 @@ LANGUAGE: ${interview.language}
 DURATION: ${interview.duration} minutes
 HINTS USED: ${hintsUsed}${hintsUsed > 0 ? " (each hint should reduce the problem-solving score by ~5 points)" : ""}
 
-TRANSCRIPT:
+INTERVIEW TRANSCRIPT:
 ${transcript}
 
-FINAL CODE:
+--- FINAL CANDIDATE CODE SOLUTION SNAPSHOT ---
 \`\`\`${interview.language}
-${interview.code}
+${finalCodeSnapshot}
 \`\`\`
 
-Generate the evaluation report as JSON.`,
+Analyze the final code snapshot for algorithmic correctness, complexity, variable naming, and style.
+Generate the evaluation report as raw JSON adhering strictly to the system prompt JSON schema.`,
       },
     ];
 
+    /**
+     * Helper to extract, parse, and validate the report JSON object.
+     */
+    function parseAndValidateReportJson(aiResponseText: string) {
+      let jsonStr = aiResponseText.trim();
+      
+      // Strip markdown code block wrappers if present (e.g. ```json ... ```)
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+      const match = jsonStr.match(/\{[\s\S]*\}/);
+      if (match) {
+        jsonStr = match[0];
+      }
+
+      const parsed = JSON.parse(jsonStr);
+
+      const clamp = (num: any, fallback: number) => {
+        const val = typeof num === "number" ? num : parseInt(String(num), 10);
+        return isNaN(val) ? fallback : Math.max(0, Math.min(100, val));
+      };
+
+      return {
+        overallScore: clamp(parsed.overallScore, 50),
+        technicalScore: clamp(parsed.technicalScore, 50),
+        communicationScore: clamp(parsed.communicationScore, 50),
+        problemSolvingScore: clamp(parsed.problemSolvingScore, 50),
+        optimizationScore: clamp(parsed.optimizationScore, 50),
+        codeQualityScore: clamp(parsed.codeQualityScore, 50),
+        strengths: Array.isArray(parsed.strengths) && parsed.strengths.length > 0
+          ? parsed.strengths.map(String)
+          : ["Engaged with technical interview"],
+        weaknesses: Array.isArray(parsed.weaknesses)
+          ? parsed.weaknesses.map(String)
+          : [],
+        suggestions: Array.isArray(parsed.suggestions)
+          ? parsed.suggestions.map(String)
+          : ["Practice standard problem-solving patterns"],
+        summary: typeof parsed.summary === "string" && parsed.summary.trim().length > 0
+          ? parsed.summary.trim()
+          : "Completed the interview evaluation.",
+        nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String) : [],
+        transcriptAnnotations: Array.isArray(parsed.transcriptAnnotations) ? parsed.transcriptAnnotations : [],
+        timeComplexity: typeof parsed.timeComplexity === "string" ? parsed.timeComplexity : "Unknown",
+        spaceComplexity: typeof parsed.spaceComplexity === "string" ? parsed.spaceComplexity : "Unknown",
+        isSolved: Boolean(parsed.isSolved),
+        estimatedLevel: typeof parsed.estimatedLevel === "string" && parsed.estimatedLevel !== "Unknown"
+          ? parsed.estimatedLevel
+          : "Very Basic",
+      };
+    }
+
     let reportData;
+    let attemptError: any = null;
+
+    // ── Attempt 1: Standard Generation ──────────────────────────────────────
     try {
       const aiResponse = await deepseekChat(evaluationMessages, {
         temperature: 0.1,
         maxTokens: 2000,
         useReportModel: true,
       });
+      reportData = parseAndValidateReportJson(aiResponse);
+    } catch (parseErr: any) {
+      attemptError = parseErr;
+      console.warn("Attempt 1: Report JSON validation failed. Retrying with strict JSON instruction...", parseErr?.message || parseErr);
+    }
 
-      // Robust JSON extraction
-      let jsonStr = aiResponse.trim();
-      const match = jsonStr.match(/\{[\s\S]*\}/);
-      if (match) {
-        jsonStr = match[0];
+    // ── Attempt 2: Strict JSON Retry ─────────────────────────────────────────
+    if (!reportData) {
+      try {
+        const retryMessages: ChatMessage[] = [
+          ...evaluationMessages,
+          {
+            role: "user",
+            content: "CRITICAL RETRY NOTICE: Your previous response was NOT valid JSON. Respond ONLY with valid, unadorned raw JSON matching the required schema. Do NOT include markdown text, explanatory text, or code block ticks.",
+          },
+        ];
+        const retryAiResponse = await deepseekChat(retryMessages, {
+          temperature: 0.0,
+          maxTokens: 2000,
+          useReportModel: true,
+        });
+        reportData = parseAndValidateReportJson(retryAiResponse);
+        console.log("Attempt 2: Successfully recovered report data after retry!");
+      } catch (retryErr: any) {
+        attemptError = retryErr;
+        console.error("Attempt 2: Report JSON retry also failed. Falling back to default report payload.", retryErr?.message || retryErr);
       }
-      reportData = JSON.parse(jsonStr);
-    } catch (parseError: any) {
-      const exactError = parseError?.message || String(parseError);
-      console.error("AI Report generation failed. Falling back to default with error detail:", exactError);
-      // Fallback report if AI fails
+    }
+
+    // ── Attempt 3: Safe Fallback if both attempts fail ───────────────────────
+    if (!reportData) {
+      const exactError = attemptError?.message || String(attemptError);
       reportData = {
         overallScore: 50,
         technicalScore: 50,
@@ -147,12 +226,14 @@ Generate the evaluation report as JSON.`,
         optimizationScore: 50,
         codeQualityScore: 50,
         strengths: ["Attempted the problem", "Engaged with interviewer"],
-        weaknesses: [`Report generation error: ${exactError}`],
+        weaknesses: [`Report generation parsing error: ${exactError}`],
         suggestions: [
           "Check API Keys / AI Settings in Admin Dashboard",
           "Try regenerating the report using the refresh button below",
         ],
-        summary: `The evaluation system encountered an issue: ${exactError}`,
+        summary: `The evaluation system encountered a temporary parsing issue: ${exactError}`,
+        nextSteps: ["Retry report generation"],
+        transcriptAnnotations: [],
         timeComplexity: "Unknown",
         spaceComplexity: "Unknown",
         isSolved: false,

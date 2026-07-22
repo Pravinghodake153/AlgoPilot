@@ -195,73 +195,145 @@ export async function deepseekChat(
  *
  * Focused on OpenRouter as the primary provider.
  */
+function cleanMessagesForOpenRouter(rawMessages: ChatMessage[]): ChatMessage[] {
+  if (!rawMessages || rawMessages.length === 0) return [];
+
+  const cleaned: ChatMessage[] = [];
+  for (const m of rawMessages) {
+    if (!m.content || !m.content.trim()) continue;
+
+    if (cleaned.length > 0) {
+      const prev = cleaned[cleaned.length - 1];
+      if (prev.role === m.role) {
+        prev.content = `${prev.content}\n\n${m.content}`;
+        continue;
+      }
+    }
+    cleaned.push({ role: m.role, content: m.content });
+  }
+  return cleaned;
+}
+
 export async function deepseekChatStream(
-  messages: ChatMessage[],
+  rawMessages: ChatMessage[],
   options?: {
     temperature?: number;
     maxTokens?: number;
-    onComplete?: (result: { content: string; thinking: string | null }) => Promise<void>;
+    onComplete?: (result: { content: string; thinking: string | null }) => Promise<void> | void;
   }
 ): Promise<{ stream: ReadableStream<Uint8Array>; fullText: Promise<{ content: string; thinking: string | null }> }> {
   const config = await getProviderConfig();
 
-  let url = config.gemini.url;
-  let key = config.gemini.key;
-  let model = config.activeModel;
-  let isOpenRouter = false;
+  const messages = cleanMessagesForOpenRouter(rawMessages);
 
+  // Build a global, cross-provider failover chain to guarantee 100% uptime
+  const failoverChain: Array<{ model: string; provider: string; url: string; key: string }> = [];
+
+  // Add primary configured provider
+  let primaryUrl = config.gemini.url;
+  let primaryKey = config.gemini.key;
   if (config.activeProvider === "openrouter") {
-    url = config.openrouter.url;
-    key = config.openrouter.key;
-    isOpenRouter = true;
+    primaryUrl = config.openrouter.url;
+    primaryKey = config.openrouter.key;
   } else if (config.activeProvider === "deepseek") {
-    url = config.deepseek.url;
-    key = config.deepseek.key;
+    primaryUrl = config.deepseek.url;
+    primaryKey = config.deepseek.key;
   } else if (config.activeProvider === "zai" || config.activeProvider === "glm") {
-    url = config.zai.url;
-    key = config.zai.key;
-  } else {
-    // Default to Gemini
-    url = config.gemini.url;
-    key = config.gemini.key;
+    primaryUrl = config.zai.url;
+    primaryKey = config.zai.key;
   }
 
-  if (!key) {
-    throw new Error(`No API key configured for provider: ${config.activeProvider}`);
-  }
+  // Auto-lowercase model name if using GLM/Z.AI to prevent case-sensitive API rejections (e.g. GLM-4.7-Flash -> glm-4.7-flash)
+  const isGLM = config.activeProvider === "zai" || config.activeProvider === "glm";
+  const formattedModel = isGLM ? config.activeModel.toLowerCase() : config.activeModel;
 
-  let response: Response;
-  const controller = new AbortController();
-  
-  try {
-    response = await fetch(`${url}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-        ...(isOpenRouter ? {
-          "HTTP-Referer": "http://localhost:3000",
-          "X-Title": "AlgoPilot",
-        } : {}),
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: options?.temperature ?? 0.7,
-        max_tokens: options?.maxTokens ?? 1024,
-        stream: true,
-        ...(isOpenRouter && { include_reasoning: true }), // Request reasoning from OpenRouter
-      }),
-      signal: controller.signal,
+  if (primaryKey) {
+    failoverChain.push({
+      model: formattedModel,
+      provider: config.activeProvider,
+      url: primaryUrl,
+      key: primaryKey,
     });
-    
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Streaming API error (${response.status}): ${errText}`);
+  }
+
+  // Add OpenRouter backups if available
+  if (config.openrouter.key) {
+    failoverChain.push(
+      { model: "deepseek/deepseek-chat", provider: "openrouter", url: config.openrouter.url, key: config.openrouter.key },
+      { model: "google/gemini-2.5-flash", provider: "openrouter", url: config.openrouter.url, key: config.openrouter.key },
+      { model: "qwen/qwen-2.5-72b-instruct", provider: "openrouter", url: config.openrouter.url, key: config.openrouter.key }
+    );
+  }
+
+  // Add direct Gemini API backup as high-reliability last resort
+  if (config.gemini.key) {
+    failoverChain.push({
+      model: "gemini-2.5-flash",
+      provider: "gemini",
+      url: config.gemini.url,
+      key: config.gemini.key,
+    });
+  }
+
+  // Remove potential duplicates
+  const uniqueChain = failoverChain.filter(
+    (item, index, self) =>
+      self.findIndex((t) => t.model === item.model && t.provider === item.provider) === index
+  );
+
+  let response: Response | null = null;
+  let lastError: Error | null = null;
+
+  for (const candidate of uniqueChain) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s connection timeout for ultra-fast provider failover
+    const isOpenRouter = candidate.provider === "openrouter";
+
+    try {
+      console.log(`[AI-Service] Attempting chat stream with provider: ${candidate.provider}, model: ${candidate.model}`);
+      const res = await fetch(`${candidate.url}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${candidate.key}`,
+          ...(isOpenRouter
+            ? {
+                "HTTP-Referer": "http://localhost:3000",
+                "X-Title": "AlgoPilot",
+              }
+            : {}),
+        },
+        body: JSON.stringify({
+          model: candidate.model,
+          messages,
+          temperature: options?.temperature ?? 0.7,
+          max_tokens: options?.maxTokens ?? 2560,
+          stream: true,
+          ...(isOpenRouter && { include_reasoning: true }),
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        response = res;
+        console.log(`[AI-Service] Successfully connected to chat stream with model: ${candidate.model}`);
+        break; // Successfully connected to stream!
+      } else {
+        const errText = await res.text();
+        console.warn(`[AI-Service] Streaming API error (${res.status}) for provider ${candidate.provider}, model ${candidate.model}: ${errText}. Trying failover...`);
+        lastError = new Error(`API error (${res.status}): ${errText}`);
+      }
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.warn(`[AI-Service] Connection failed for provider ${candidate.provider}, model ${candidate.model}: ${err?.message || err}. Trying failover...`);
+      lastError = err;
     }
-  } catch (err) {
-    console.error(`Streaming failed for ${config.activeProvider}.`, err);
-    throw err;
+  }
+
+  if (!response || !response.ok) {
+    throw lastError || new Error("All streaming failover providers failed");
   }
 
   if (!response.body) {
@@ -322,6 +394,26 @@ export async function deepseekChatStream(
     if (isCompleted) return;
     isCompleted = true;
     
+    // Smart Fallback: If model finished with ONLY reasoning tokens and no answer content
+    if (!accumulatedContent.trim() && accumulatedReasoning.trim()) {
+      const match = accumulatedReasoning.match(/(?:Draft\s*\d*\s*:?\s*|\*\*Draft\s*\d*\s*:?\*\*\s*|Final\s*Output\s*(?:\([^)]*\))?\s*:?\s*|\*\*Final\s*Output\s*(?:\([^)]*\))?\s*:?\*\*\s*)([^\n]+(?:\n[^\n]+)*)/i);
+      let fallbackText = "";
+      if (match && match[1]) {
+        fallbackText = match[1].replace(/^[*\s]+|[*\s]+$/g, "").trim();
+      } else {
+        // Grab last non-numbered non-bold line
+        const lines = accumulatedReasoning.split("\n").map((l) => l.trim()).filter(Boolean);
+        fallbackText = lines[lines.length - 1] || "";
+      }
+
+      if (fallbackText) {
+        accumulatedContent = fallbackText;
+        const endTag = "\n\n---\n\n";
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: endTag, isReasoning: true })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: fallbackText })}\n\n`));
+      }
+    }
+
     try {
       await upstreamReader.cancel();
     } catch (e) {
@@ -344,7 +436,23 @@ export async function deepseekChatStream(
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { done, value } = await upstreamReader.read();
+        // Race upstream stream read against 12-second inactivity watchdog timeout
+        let watchdogTimer: NodeJS.Timeout | null = null;
+        const readPromise = upstreamReader.read();
+        const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array; timeout: boolean }>((resolve) => {
+          watchdogTimer = setTimeout(() => resolve({ done: true, timeout: true }), 12000);
+        });
+
+        const result = await Promise.race([readPromise, timeoutPromise]);
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+
+        if ("timeout" in result && result.timeout) {
+          console.warn("[AI-Service] Upstream stream read timed out after 12s of inactivity");
+          await handleFinish(controller);
+          return;
+        }
+
+        const { done, value } = result;
 
         if (done) {
           await handleFinish(controller);
@@ -456,6 +564,10 @@ export function buildInterviewerSystemPrompt(config: {
   duration: number;
   timeRemainingSeconds?: number;
   voiceId?: string;
+  tabSwitchCount?: number;
+  outOfFrameCount?: number;
+  multiplePeopleCount?: number;
+  hintCount?: number;
 }): string {
   // Build time-awareness context
   let timeContext = "";
@@ -490,8 +602,59 @@ TIME BEHAVIOR (UNDER 5 MINUTES):
     }
   }
 
-  const isFemale = config.voiceId && (config.voiceId.startsWith("af_") || config.voiceId.startsWith("if_") || config.voiceId.startsWith("bf_"));
-  const interviewerName = isFemale ? "Nova" : "Alex";
+  // Build proctoring violations context
+  let proctoringContext = "";
+  const violations: string[] = [];
+  if (typeof config.tabSwitchCount === "number" && config.tabSwitchCount > 0) {
+    violations.push(`Tab switches detected: ${config.tabSwitchCount} times`);
+  }
+  if (typeof config.outOfFrameCount === "number" && config.outOfFrameCount > 0) {
+    violations.push(`Out of camera frame duration: ${config.outOfFrameCount} seconds`);
+  }
+  if (typeof config.multiplePeopleCount === "number" && config.multiplePeopleCount > 0) {
+    violations.push(`Multiple persons detected in camera frame: ${config.multiplePeopleCount} times`);
+  }
+  if (typeof config.hintCount === "number" && config.hintCount > 0) {
+    violations.push(`Hints requested so far: ${config.hintCount}`);
+  }
+
+  if (violations.length > 0) {
+    proctoringContext = `
+PROCTORING ALERTS & CANDIDATE CONDUCT:
+The candidate has committed the following proctoring violation(s):
+${violations.map((v) => `- ${v}`).join("\n")}
+
+CRITICAL INSTRUCTION FOR PROCTORING VIOLATIONS:
+At the very beginning of your next response, address these proctoring violation(s) with a firm but polite warning in MAXIMUM 1 SENTENCE (e.g., "Please keep your focus on the interview window and remain clearly visible in frame without switching tabs."). Then seamlessly continue with the technical interview.`;
+  }
+
+const INDIAN_VOICE_NAME_MAP: Record<string, string> = {
+  am_adam: "Aarav",
+  am_michael: "Rohan",
+  am_fenrir: "Vikram",
+  am_puck: "Kabir",
+  am_echo: "Aditya",
+  af_heart: "Ananya",
+  af_bella: "Diya",
+  af_sarah: "Isha",
+  af_nicole: "Kavya",
+  af_sky: "Meera",
+  if_sara: "Priya",
+  minimax_male_presenter: "Dev",
+  minimax_female_shaonv: "Riya",
+  minimax_female_yujie: "Sanya",
+  gemini_alloy: "Neer",
+  gemini_echo: "Siddharth",
+  gemini_onyx: "Varun",
+  gemini_nova: "Tara",
+  gemini_shimmer: "Neha",
+  local_male: "System Male",
+  local_female: "System Female",
+};
+
+  const isFemale = config.voiceId && (config.voiceId.startsWith("af_") || config.voiceId.startsWith("if_") || config.voiceId.startsWith("bf_") || config.voiceId.includes("female") || config.voiceId === "gemini_nova" || config.voiceId === "gemini_shimmer");
+  const mappedName = config.voiceId ? INDIAN_VOICE_NAME_MAP[config.voiceId] : undefined;
+  const interviewerName = mappedName || (isFemale ? "Ananya" : "Aarav");
 
   let styleInstructions = "";
   if (config.style === "product") {
@@ -529,9 +692,16 @@ INTERVIEW CONTEXT:
 - Duration: ${config.duration} minutes
 ${styleInstructions}
 ${timeContext}
+${proctoringContext}
 
 PROBLEM DETAILS:
 ${config.problemDescription}
+
+PROGRESSIVE DIFFICULTY ESCALATION PATHS:
+When the candidate completes or approaches a working solution, guide them through these structured escalation stages:
+- Stage 1 (Edge Cases & Robustness): Probe how their code handles empty inputs, nulls, negative numbers, integer overflows, or duplicate elements.
+- Stage 2 (Complexity & Optimization): Ask for Big-O time and space complexity. If their solution is sub-optimal (e.g., O(N^2)), challenge them to optimize to O(N log N) or O(N), or reduce auxiliary space to O(1).
+- Stage 3 (System & Streaming Scale): Ask how their algorithm would adapt if inputs arrive as a continuous stream or exceed memory capacity.
 
 BEHAVIOR RULES:
 1. Start by briefly introducing yourself and the problem. Do NOT repeat the full problem text — the candidate can see it.
@@ -542,14 +712,14 @@ BEHAVIOR RULES:
    - Edge cases
    - Alternative approaches
    - Code optimizations
-5. When the candidate runs code and you see the execution result, acknowledge it. If it failed, help them debug. If it passed, ask about edge cases or optimization.
-6. Keep responses SHORT (2-4 sentences max). This is a conversation, not a lecture.
+5. When the candidate runs code and you see the execution result in the context, acknowledge it immediately. If it failed or threw a compilation error, reference the specific line number from the numbered code context to help them debug. If it passed, challenge them on edge cases or optimization.
+6. Keep responses strictly concise — NEVER write more than 2 to 3 short paragraphs (maximum 2-4 sentences overall per response). Keep each response bite-sized and natural for verbal conversation.
 7. Be encouraging but honest. Point out issues tactfully.
 8. Do NOT write code for the candidate.
-9. Do NOT use markdown formatting, code blocks, or bullet points. Speak naturally.
+9. Do NOT use markdown formatting, code blocks, or bullet points. Speak naturally. Use conversational fillers (e.g., "umm", "hmm", "let's see", "ah") and natural pauses in your text so that the Text-to-Speech sounds human and realistic.
 10. Address the candidate directly ("you", "your code", etc.).
-11. You can see the candidate's code in the editor and their execution results. Reference specific lines or variables when giving feedback.
-12. DIFFICULTY ADAPTATION: Monitor the candidate's performance. If they solve the problem quickly, escalate the difficulty by asking a complex follow-up or system design question. If they struggle, provide hints and dynamically step down the difficulty. Make a note of this adaptation in your reasoning/thinking.
+11. You can see the candidate's code in the editor with line numbers. Reference specific line numbers (e.g. "On line 12...") when giving code feedback.
+12. DIFFICULTY ADAPTATION: Monitor the candidate's performance. Follow the PROGRESSIVE DIFFICULTY ESCALATION PATHS above to guide their interview progression.
 
 TONE: Professional, calm, encouraging. Like a real interviewer at a top tech company.`;
 }
@@ -600,7 +770,12 @@ EVALUATE:
 - Communication: Clarity, explaining thought process, asking clarifying questions
 - Problem Solving: Breaking down problems, handling edge cases, adapting to hints
 - Optimization: Time/space complexity awareness, proactive improvements
-- Code Quality: Clean code, variable naming, structure, readability
+- Code Quality: Clean code, variable naming, structure, readability, modularity
+
+CODE EVALUATION:
+- Carefully analyze the candidate's final code provided under "FINAL CANDIDATE CODE SOLUTION SNAPSHOT".
+- Evaluate variable naming, code structure, correctness, and edge-case handling to calculate codeQualityScore, timeComplexity, and spaceComplexity.
+- If the candidate submitted no code or empty code, penalize codeQualityScore and set isSolved to false.
 
 ADVANCED METRICS:
 - "timeComplexity": Analyze the final code to determine the Big-O time complexity.

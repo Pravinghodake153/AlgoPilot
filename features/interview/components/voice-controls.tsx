@@ -36,10 +36,24 @@ export function VoiceControls() {
   const voicePickerRef = useRef<HTMLDivElement>(null);
   const langPickerRef = useRef<HTMLDivElement>(null);
 
-  // Load voices (may load async on first call)
+  // Load voices filtered by active Admin TTS Model setting
   useEffect(() => {
-    const loadVoices = () => {
-      const available = getAvailableVoices();
+    let isMounted = true;
+    const loadVoices = async () => {
+      let activeModel = "auto";
+      try {
+        const res = await fetch("/api/tts/settings");
+        if (res.ok) {
+          const data = await res.json();
+          activeModel = data.ttsModel || "auto";
+        }
+      } catch {
+        /* fallback to auto */
+      }
+
+      if (!isMounted) return;
+
+      const available = getAvailableVoices(activeModel);
       setVoices(available);
       // Set default voice if none selected
       if (!selectedVoiceId && available.length > 0) {
@@ -53,6 +67,7 @@ export function VoiceControls() {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
       return () => {
+        isMounted = false;
         window.speechSynthesis.removeEventListener(
           "voiceschanged",
           loadVoices

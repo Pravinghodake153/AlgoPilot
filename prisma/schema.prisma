@@ -1,47 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 model User {
-  id        String      @id @default(uuid())
-  clerkId   String      @unique
-  email     String      @unique
-  name      String?
-  imageUrl  String?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  interviews Interview[]
+  id         String      @id @default(uuid())
+  clerkId    String      @unique
+  email      String      @unique
+  name       String?
+  imageUrl   String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
   feedbacks  Feedback[]
+  interviews Interview[]
 
   @@index([clerkId])
 }
 
 model Interview {
-  id                 String      @id @default(uuid())
+  id                 String     @id @default(uuid())
   userId             String
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  language           String      // "cpp", "java", "python", "javascript", "go"
-  difficulty         String      // "easy", "medium", "hard"
-  style              String      @default("standard") // "standard", "product", "startup", "service"
-  duration           Int         // in minutes (e.g. 10, 20)
-  status             String      // "setup", "in_progress", "completed", "cancelled"
+  language           String
+  difficulty         String
+  duration           Int
+  status             String
   problemTitle       String
-  problemDescription String      @db.Text
-  code               String      @db.Text
-  tabSwitchCount     Int         @default(0)
-  outOfFrameCount    Int         @default(0)
+  problemDescription String
+  code               String
   startedAt          DateTime?
   endedAt            DateTime?
-  createdAt          DateTime    @default(now())
+  createdAt          DateTime   @default(now())
+  style              String     @default("standard")
+  outOfFrameCount    Int        @default(0)
+  tabSwitchCount     Int        @default(0)
+  multiplePeopleCount Int       @default(0)
+  errorLogs          ErrorLog[]
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages           Message[]
   report             Report?
-  errorLogs          ErrorLog[]
 
   @@index([userId])
 }
@@ -49,49 +50,46 @@ model Interview {
 model Message {
   id          String    @id @default(uuid())
   interviewId String
-  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  role        String    // "assistant", "user", "system"
-  thinking    String?   @db.Text
-  content     String    @db.Text
+  role        String
+  content     String
   createdAt   DateTime  @default(now())
+  thinking    String?
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
 
   @@index([interviewId])
 }
 
 model Report {
-  id                 String    @id @default(uuid())
-  interviewId        String    @unique
-  interview          Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  overallScore       Int
-  technicalScore     Int
-  communicationScore Int
-  problemSolvingScore Int
-  optimizationScore  Int
-  codeQualityScore   Int
-  strengths          Json      // String[] stored as JSON
-  weaknesses         Json      // String[] stored as JSON
-  suggestions        Json      // String[] stored as JSON
-  summary            String    @db.Text
-  nextSteps          Json?     // String[] stored as JSON
-  transcriptAnnotations Json?  // Array of { messageIndex, tag, rationale }
-  
-  // Advanced Metrics
-  timeComplexity     String?
-  spaceComplexity    String?
-  isSolved           Boolean   @default(false)
-  estimatedLevel     String?
-
-  isPublic           Boolean   @default(true)
-  createdAt          DateTime  @default(now())
+  id                    String    @id @default(uuid())
+  interviewId           String    @unique
+  overallScore          Int
+  technicalScore        Int
+  communicationScore    Int
+  problemSolvingScore   Int
+  optimizationScore     Int
+  codeQualityScore      Int
+  strengths             Json
+  weaknesses            Json
+  suggestions           Json
+  summary               String
+  createdAt             DateTime  @default(now())
+  nextSteps             Json?
+  transcriptAnnotations Json?
+  isPublic              Boolean   @default(true)
+  estimatedLevel        String?
+  isSolved              Boolean   @default(false)
+  spaceComplexity       String?
+  timeComplexity        String?
+  interview             Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
 }
 
 model Feedback {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   rating    Int
-  comment   String   @db.Text
+  comment   String
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -99,10 +97,10 @@ model Feedback {
 model ErrorLog {
   id          String    @id @default(uuid())
   interviewId String
-  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  errorType   String    // e.g. "TIMEOUT"
-  message     String    @db.Text
+  errorType   String
+  message     String
   createdAt   DateTime  @default(now())
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
 
   @@index([interviewId])
 }
@@ -115,10 +113,10 @@ model SystemSetting {
 
 model EventLog {
   id          String   @id @default(uuid())
-  interviewId String?  // Optional, since some events might not be tied to an interview
-  userId      String?  // Optional, for anonymous tracking before login
-  eventType   String   // e.g. "TAB_SWITCH", "CAMERA_OUT_OF_FRAME", "TALKING_DETECTED", "PAGE_LOAD"
-  details     Json?    // Any extra contextual data
+  interviewId String?
+  userId      String?
+  eventType   String
+  details     Json?
   createdAt   DateTime @default(now())
 
   @@index([interviewId])

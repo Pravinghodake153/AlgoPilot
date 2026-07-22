@@ -77,8 +77,31 @@ export async function POST(req: Request, context: RouteContext) {
       }
     });
 
-    const isFemale = voiceId && (voiceId.startsWith("af_") || voiceId.startsWith("if_") || voiceId.startsWith("bf_"));
-    const interviewerName = isFemale ? "Nova" : "Alex";
+    const INDIAN_VOICE_NAME_MAP: Record<string, string> = {
+      am_adam: "Aarav",
+      am_michael: "Rohan",
+      am_fenrir: "Vikram",
+      am_puck: "Kabir",
+      am_echo: "Aditya",
+      af_heart: "Ananya",
+      af_bella: "Diya",
+      af_sarah: "Isha",
+      af_nicole: "Kavya",
+      af_sky: "Meera",
+      if_sara: "Priya",
+      minimax_male_presenter: "Dev",
+      minimax_female_shaonv: "Riya",
+      minimax_female_yujie: "Sanya",
+      gemini_alloy: "Neer",
+      gemini_echo: "Siddharth",
+      gemini_onyx: "Varun",
+      gemini_nova: "Tara",
+      gemini_shimmer: "Neha",
+    };
+
+    const isFemale = voiceId && (voiceId.startsWith("af_") || voiceId.startsWith("if_") || voiceId.startsWith("bf_") || voiceId.includes("female") || voiceId === "gemini_nova" || voiceId === "gemini_shimmer");
+    const mappedName = voiceId ? INDIAN_VOICE_NAME_MAP[voiceId] : undefined;
+    const interviewerName = mappedName || (isFemale ? "Ananya" : "Aarav");
 
     // Generate AI's opening message
     const systemPrompt = buildInterviewerSystemPrompt({
@@ -99,24 +122,39 @@ export async function POST(req: Request, context: RouteContext) {
           {
             role: "user",
             content:
-              "The candidate has just joined the interview. Introduce yourself briefly and let them know you'll be discussing the problem. Keep it to 2-3 sentences.",
+              `The candidate has just joined the interview. Introduce yourself as ${interviewerName} briefly and let them know you'll be discussing the problem. Keep it to 2-3 sentences.`,
           },
         ],
         { temperature: 0.8, maxTokens: 256 }
       );
+      if (!openingMessage || !openingMessage.trim()) {
+        throw new Error("Empty opening message from model");
+      }
     } catch {
-      // Fallback if DeepSeek is unavailable
+      // Fallback if AI provider is slow/unavailable
       openingMessage = `Hi, I'm ${interviewerName}, and I'll be conducting your technical interview today. We have ${interview.duration} minutes to work through this ${interview.difficulty} problem. Take a moment to read through it, and when you're ready, walk me through your initial thoughts on how you'd approach it.`;
     }
 
-    // Save the opening message
-    await prisma.message.create({
-      data: {
-        interviewId: id,
-        role: "assistant",
-        content: openingMessage,
-      },
+    // Check if an opening message already exists for this interview
+    const existingStartMsg = await prisma.message.findFirst({
+      where: { interviewId: id, role: "assistant" },
+      orderBy: { createdAt: "asc" },
     });
+
+    if (existingStartMsg) {
+      await prisma.message.update({
+        where: { id: existingStartMsg.id },
+        data: { content: openingMessage },
+      });
+    } else {
+      await prisma.message.create({
+        data: {
+          interviewId: id,
+          role: "assistant",
+          content: openingMessage,
+        },
+      });
+    }
 
     return NextResponse.json({ message: openingMessage });
   } catch (error) {

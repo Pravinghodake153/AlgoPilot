@@ -35,9 +35,34 @@ export function AIAvatar() {
     return true;
   };
 
+const INDIAN_VOICE_NAME_MAP: Record<string, string> = {
+  am_adam: "Aarav",
+  am_michael: "Rohan",
+  am_fenrir: "Vikram",
+  am_puck: "Kabir",
+  am_echo: "Aditya",
+  af_heart: "Ananya",
+  af_bella: "Diya",
+  af_sarah: "Isha",
+  af_nicole: "Kavya",
+  af_sky: "Meera",
+  if_sara: "Priya",
+  minimax_male_presenter: "Dev",
+  minimax_female_shaonv: "Riya",
+  minimax_female_yujie: "Sanya",
+  gemini_alloy: "Neer",
+  gemini_echo: "Siddharth",
+  gemini_onyx: "Varun",
+  gemini_nova: "Tara",
+  gemini_shimmer: "Neha",
+  local_male: "System Male",
+  local_female: "System Female",
+};
+
   const selectedVoiceId = useInterviewStore((s) => s.selectedVoiceId);
-  const isFemale = selectedVoiceId && (selectedVoiceId.startsWith("af_") || selectedVoiceId.startsWith("if_") || selectedVoiceId.startsWith("bf_"));
-  const interviewerName = isFemale ? "Nova" : "Alex";
+  const isFemale = selectedVoiceId && (selectedVoiceId.startsWith("af_") || selectedVoiceId.startsWith("if_") || selectedVoiceId.startsWith("bf_") || selectedVoiceId.includes("female") || selectedVoiceId === "gemini_nova" || selectedVoiceId === "gemini_shimmer");
+  const mappedName = selectedVoiceId ? INDIAN_VOICE_NAME_MAP[selectedVoiceId] : undefined;
+  const interviewerName = mappedName || (isFemale ? "Ananya" : "Aarav");
 
   const label = getLabel();
 

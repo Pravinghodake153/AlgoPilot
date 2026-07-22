@@ -78,13 +78,26 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
     }
   }, []);
 
+  const highVolumeStartTimeRef = useRef<number | null>(null);
+
   const startVolumeVisualizer = useCallback(async (): Promise<MediaStream | null> => {
     if (typeof window === "undefined" || !navigator.mediaDevices) return null;
+    if (useInterviewStore.getState().isMicMuted) {
+      stopVolumeVisualizer();
+      return null;
+    }
 
     stopVolumeVisualizer();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 🎧 Enable WebRTC Echo Cancellation, Noise Suppression & Auto Gain Control
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       streamRef.current = stream;
 
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -110,7 +123,7 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
       dataArrayRef.current = dataArray;
 
       const updateVolume = () => {
-        if (!analyserRef.current || !dataArrayRef.current || !volumeRef.current) return;
+        if (!analyserRef.current || !dataArrayRef.current) return;
 
         analyserRef.current.getByteFrequencyData(dataArrayRef.current as any);
 
@@ -120,11 +133,32 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
         }
         const average = sum / dataArrayRef.current.length;
 
-        const scale = 1.0 + (average / 255.0) * 0.7;
-        const opacity = Math.min(0.9, 0.2 + (average / 255.0) * 0.7);
+        if (volumeRef.current) {
+          const scale = 1.0 + (average / 255.0) * 0.7;
+          const opacity = Math.min(0.9, 0.2 + (average / 255.0) * 0.7);
+          volumeRef.current.style.transform = `scale(${scale})`;
+          volumeRef.current.style.opacity = `${opacity}`;
+        }
 
-        volumeRef.current.style.transform = `scale(${scale})`;
-        volumeRef.current.style.opacity = `${opacity}`;
+        // ⏱️ Intentional Barge-in Handling during AI speech
+        const currentAiState = useInterviewStore.getState().aiState;
+        if (currentAiState === "speaking") {
+          // If candidate is speaking loudly (>40% volume amplitude) directly into mic
+          if (average > 100) {
+            if (!highVolumeStartTimeRef.current) {
+              highVolumeStartTimeRef.current = Date.now();
+            } else if (Date.now() - highVolumeStartTimeRef.current > 400) {
+              // High volume sustained for > 400ms -> Candidate intentionally interrupting AI!
+              stopSpeaking();
+              useInterviewStore.getState().setAIState("listening");
+              highVolumeStartTimeRef.current = null;
+            }
+          } else {
+            highVolumeStartTimeRef.current = null;
+          }
+        } else {
+          highVolumeStartTimeRef.current = null;
+        }
 
         animationFrameIdRef.current = requestAnimationFrame(updateVolume);
       };
@@ -142,6 +176,10 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
   // ─── Manual Recording Logic (MediaRecorder) ────
 
   const startManualRecording = async () => {
+    if (useInterviewStore.getState().isMicMuted) {
+      setErrorMessage("Unmute your microphone to start recording.");
+      return;
+    }
     setErrorMessage(null);
     const stream = await startVolumeVisualizer();
     if (!stream) return;
@@ -292,6 +330,17 @@ export function VoiceInput({ sendMessage, stopGeneration }: VoiceInputProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldListenAuto, voiceInputMode]);
+
+  // Stop all audio capture when mic is muted
+  useEffect(() => {
+    if (isMicMuted) {
+      stopListening();
+      stopVolumeVisualizer();
+      if (isManualRecording) {
+        stopManualRecording();
+      }
+    }
+  }, [isMicMuted, stopListening, stopVolumeVisualizer, isManualRecording]);
 
   // Sync volume visualizer for Auto Mode
   useEffect(() => {

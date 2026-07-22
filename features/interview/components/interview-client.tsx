@@ -122,7 +122,7 @@ export function InterviewClient({
     [bufferToken, flushAndFinish, stopTTS]
   );
 
-  const { sendMessage, stopGeneration } = useChatStream(streamCallbacks);
+  const { sendMessage, stopGeneration, isReconnecting } = useChatStream(streamCallbacks);
 
   // Stable sendMessage for child components
   const handleSendMessage = useCallback(
@@ -137,6 +137,77 @@ export function InterviewClient({
     stopGeneration();
     resetTTS();
   }, [stopGeneration, resetTTS]);
+
+  // Global ESC keyboard shortcut to stop AI speaking or text generation
+  useEffect(() => {
+    function handleGlobalEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        stopTTS();
+        handleStopGeneration();
+      }
+    }
+    window.addEventListener("keydown", handleGlobalEsc);
+    return () => window.removeEventListener("keydown", handleGlobalEsc);
+  }, [stopTTS, handleStopGeneration]);
+
+  // ─── 5-Minute Periodic Proctoring Warning Interval ─────
+  useEffect(() => {
+    if (!isInterviewActive) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/interviews/${interview.id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const currentTabSwitch = data.interview?.tabSwitchCount ?? tabSwitchCount;
+        const currentOutOfFrame = data.interview?.outOfFrameCount ?? outOfFrameCount;
+        const currentMultiplePeople = data.interview?.multiplePeopleCount ?? 0;
+
+        if (currentTabSwitch > 0 || currentOutOfFrame > 0 || currentMultiplePeople > 0) {
+          const warningDetails: string[] = [];
+          if (currentTabSwitch > 0) warningDetails.push(`${currentTabSwitch} tab switch(es)`);
+          if (currentOutOfFrame > 0) warningDetails.push(`${currentOutOfFrame}s out of camera frame`);
+          if (currentMultiplePeople > 0) warningDetails.push(`${currentMultiplePeople} multiple person detection(s)`);
+
+          const warningMessageText = `Proctoring Warning: Total recorded violations so far: ${warningDetails.join(", ")}. Please stay focused on the interview window and remain in camera frame.`;
+
+          const warningMsgId = `msg-warn-${Date.now()}`;
+          useInterviewStore.setState((state) => {
+            const lastMsg = state.messages[state.messages.length - 1];
+            if (lastMsg && lastMsg.content === warningMessageText) return state;
+
+            return {
+              messages: [
+                ...state.messages,
+                {
+                  id: warningMsgId,
+                  role: "assistant",
+                  content: warningMessageText,
+                  timestamp: Date.now(),
+                },
+              ],
+            };
+          });
+
+          const currentStore = useInterviewStore.getState();
+          if (!currentStore.isSpeakerMuted) {
+            currentStore.setAIState("speaking");
+            speakBackend(warningMessageText, interview.id, () => {
+              const s = useInterviewStore.getState();
+              s.setAIState(s.mode === "voice" ? "listening" : "idle");
+            }, () => {
+              const s = useInterviewStore.getState();
+              s.setAIState(s.mode === "voice" ? "listening" : "idle");
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Periodic proctoring warning check error:", err);
+      }
+    }, 300000); // 5 minutes
+
+    return () => clearInterval(intervalId);
+  }, [isInterviewActive, interview.id, tabSwitchCount, outOfFrameCount]);
 
   // Redirect to report page when interview is completed
   useEffect(() => {
@@ -199,69 +270,89 @@ export function InterviewClient({
     }
 
     if (existingMessages.length === 0) {
-      // Auto-start: get AI's opening message
       async function startInterview() {
         const currentStore = useInterviewStore.getState();
         const selectedVoiceId = currentStore.selectedVoiceId;
-        const isFemale = selectedVoiceId && (selectedVoiceId.startsWith("af_") || selectedVoiceId.startsWith("if_") || selectedVoiceId.startsWith("bf_"));
-        const interviewerName = isFemale ? "Nova" : "Alex";
 
+        currentStore.setAIState("thinking");
+
+        const INDIAN_VOICE_NAME_MAP: Record<string, string> = {
+          am_adam: "Aarav",
+          am_michael: "Rohan",
+          am_fenrir: "Vikram",
+          am_puck: "Kabir",
+          am_echo: "Aditya",
+          af_heart: "Ananya",
+          af_bella: "Diya",
+          af_sarah: "Isha",
+          af_nicole: "Kavya",
+          af_sky: "Meera",
+          if_sara: "Priya",
+          minimax_male_presenter: "Dev",
+          minimax_female_shaonv: "Riya",
+          minimax_female_yujie: "Sanya",
+          gemini_alloy: "Neer",
+          gemini_echo: "Siddharth",
+          gemini_onyx: "Varun",
+          gemini_nova: "Tara",
+          gemini_shimmer: "Neha",
+          local_male: "System Male",
+          local_female: "System Female",
+        };
+
+        const isFemale = selectedVoiceId && (selectedVoiceId.startsWith("af_") || selectedVoiceId.startsWith("if_") || selectedVoiceId.startsWith("bf_") || selectedVoiceId.includes("female") || selectedVoiceId === "gemini_nova" || selectedVoiceId === "gemini_shimmer");
+        const mappedName = selectedVoiceId ? INDIAN_VOICE_NAME_MAP[selectedVoiceId] : undefined;
+        const interviewerName = mappedName || (isFemale ? "Ananya" : "Aarav");
+
+        let openingText = "";
         try {
           const res = await fetch(`/api/interviews/${interview.id}/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ voiceId: selectedVoiceId, interviewStyle }),
           });
-          if (!res.ok) {
-            throw new Error(`Failed to start interview: ${res.statusText}`);
-          }
 
-          const data = await res.json();
-          useInterviewStore.getState().addMessage("assistant", data.message);
-
-          if (!currentStore.isSpeakerMuted) {
-            currentStore.setAIState("speaking");
-            speakBackend(data.message, interview.id, () => {
-              const s = useInterviewStore.getState();
-              if (s.mode === "voice") {
-                s.setAIState("listening");
-              } else {
-                s.setAIState("idle");
-              }
-            }, () => {
-              const s = useInterviewStore.getState();
-              if (s.mode === "voice") {
-                s.setAIState("listening");
-              } else {
-                s.setAIState("idle");
-              }
-            });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.message && data.message.trim()) {
+              openingText = data.message;
+            }
           }
         } catch (error) {
-          console.error("Failed to start interview:", error);
-          const fallbackMsg = `Hi, I'm ${interviewerName}. Welcome to your ${interview.difficulty} coding interview. Take a moment to read the problem, and when you're ready, share your initial thoughts.`;
-          useInterviewStore.getState().addMessage("assistant", fallbackMsg);
+          console.error("Start interview error:", error);
+        }
 
-          if (!currentStore.isSpeakerMuted) {
-            currentStore.setAIState("speaking");
-            speakBackend(fallbackMsg, interview.id, () => {
-              const s = useInterviewStore.getState();
-              if (s.mode === "voice") {
-                s.setAIState("listening");
-              } else {
-                s.setAIState("idle");
-              }
-            }, () => {
-              const s = useInterviewStore.getState();
-              if (s.mode === "voice") {
-                s.setAIState("listening");
-              } else {
-                s.setAIState("idle");
-              }
-            });
-          }
+        if (!openingText) {
+          openingText = `Hi, I'm ${interviewerName}. Welcome to your ${interview.difficulty} coding interview. Take a moment to read the problem, and when you're ready, share your initial thoughts on how you'd approach it.`;
+        }
+
+        const startMsgId = `msg-start-${Date.now()}`;
+        useInterviewStore.setState({
+          messages: [
+            {
+              id: startMsgId,
+              role: "assistant",
+              content: openingText,
+              timestamp: Date.now(),
+            },
+          ],
+        });
+
+        // Speak the exact opening message
+        if (!currentStore.isSpeakerMuted) {
+          currentStore.setAIState("speaking");
+          speakBackend(openingText, interview.id, () => {
+            const s = useInterviewStore.getState();
+            s.setAIState(s.mode === "voice" ? "listening" : "idle");
+          }, () => {
+            const s = useInterviewStore.getState();
+            s.setAIState(s.mode === "voice" ? "listening" : "idle");
+          });
+        } else {
+          currentStore.setAIState(currentStore.mode === "voice" ? "listening" : "idle");
         }
       }
+
       startInterview();
     }
   };
@@ -379,6 +470,19 @@ export function InterviewClient({
         onDismiss={dismissFaceWarning}
         durationMs={5000}
       />
+
+      {/* Network Drop Reconnection Toast */}
+      {isReconnecting && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3 rounded-lg px-5 py-3 shadow-xl border border-amber-500/40 bg-amber-600/90 text-white backdrop-blur-md">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-100"></span>
+            </span>
+            <span className="text-sm font-semibold">Network connection dropped. Reconnecting to AI in 2s...</span>
+          </div>
+        </div>
+      )}
 
       {/* Camera Preview Floating Window */}
       {isInterviewActive && <CameraPreview stream={cameraStream} />}

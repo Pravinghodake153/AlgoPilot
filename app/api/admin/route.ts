@@ -153,6 +153,22 @@ export async function POST(req: Request) {
       });
     }
 
+    if (body.ttsModel !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "TTS_MODEL" },
+        update: { value: body.ttsModel },
+        create: { key: "TTS_MODEL", value: body.ttsModel },
+      });
+    }
+
+    if (body.ttsSpeed !== undefined) {
+      await prisma.systemSetting.upsert({
+        where: { key: "TTS_SPEED" },
+        update: { value: String(body.ttsSpeed) },
+        create: { key: "TTS_SPEED", value: String(body.ttsSpeed) },
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin POST Error:", error);

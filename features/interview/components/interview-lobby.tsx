@@ -10,9 +10,29 @@ function LobbyVideoPreview({ stream }: { stream: MediaStream | null }) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (video && stream) {
-      video.srcObject = stream;
-      video.play().catch((err) => console.log("Lobby video play error:", err));
+    if (!video || !stream) return;
+
+    // Check if stream has live tracks
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length === 0 || videoTracks[0].readyState === "ended") {
+      console.warn("LobbyVideoPreview: Stream tracks are ended or missing");
+      return;
+    }
+
+    video.srcObject = stream;
+
+    const playVideo = () => {
+      video
+        .play()
+        .catch((err) => console.log("Lobby video play error:", err));
+    };
+
+    if (video.readyState >= 2) {
+      playVideo();
+    } else {
+      video.onloadedmetadata = () => {
+        playVideo();
+      };
     }
   }, [stream]);
 
@@ -22,7 +42,7 @@ function LobbyVideoPreview({ stream }: { stream: MediaStream | null }) {
       autoPlay
       playsInline
       muted
-      className="h-full w-full object-cover -scale-x-100"
+      className="h-full w-full object-cover -scale-x-100 rounded-md"
     />
   );
 }
@@ -40,15 +60,8 @@ export function InterviewLobby({
   const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [interviewStyle, setInterviewStyle] = useState("Standard");
   const testAudioRef = useRef<HTMLAudioElement | null>(null);
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const camStreamRef = useRef<MediaStream | null>(null);
 
-  // Bind camera stream to video element once mounted
-  useEffect(() => {
-    if (cameraVideoRef.current && camStream) {
-      cameraVideoRef.current.srcObject = camStream;
-    }
-  }, [camStream, cameraStatus]);
-  
   const mode = useInterviewStore((s) => s.mode);
   const setMode = useInterviewStore((s) => s.setMode);
   const interviewId = useInterviewStore((s) => s.interviewId);
@@ -64,17 +77,35 @@ export function InterviewLobby({
       mounted.current = true;
       const timer = setTimeout(() => {
         onReady(interviewStyle);
-      }, 1500); // Small delay to show "Resuming" toast effect
+      }, 500); // Small delay to show "Resuming" toast effect
       return () => clearTimeout(timer);
     }
   }, [isResuming, onReady, interviewStyle]);
 
-  // Load available voices
+  // Load available voices filtered by active Admin TTS Model setting
   useEffect(() => {
-    const loadVoices = () => {
-      const available = getAvailableVoices();
+    let isMounted = true;
+    const loadVoices = async () => {
+      let activeModel = "auto";
+      try {
+        const res = await fetch("/api/tts/settings");
+        if (res.ok) {
+          const data = await res.json();
+          activeModel = data.ttsModel || "auto";
+        }
+      } catch {
+        /* fallback to auto */
+      }
+
+      if (!isMounted) return;
+
+      const available = getAvailableVoices(activeModel);
       setVoices(available);
-      if (!selectedVoiceId && available.length > 0) {
+      
+      const currentVoice = useInterviewStore.getState().selectedVoiceId;
+      const voiceExists = available.some((v) => v.id === currentVoice);
+
+      if (!voiceExists && available.length > 0) {
         setSelectedVoiceId(available[0].id);
       }
     };
@@ -84,52 +115,88 @@ export function InterviewLobby({
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
       return () => {
+        isMounted = false;
         window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
       };
     }
-  }, [selectedVoiceId, setSelectedVoiceId]);
+  }, [setSelectedVoiceId]);
 
-  // Request mic and camera permissions
+  // Request mic and camera permissions with leak-proof stream lifecycle management
   useEffect(() => {
     if (isResuming) return;
 
-    let micStream: MediaStream | null = null;
-    let camStream: MediaStream | null = null;
-    
+    let isSubscribed = true;
+
     async function checkDevices() {
-      // Check Mic
+      // 1. Check Mic
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMicStatus("ok");
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (isSubscribed) {
+          setMicStatus("ok");
+        }
+        // Stop temporary mic test tracks
         micStream.getTracks().forEach((track) => track.stop());
       } catch (err) {
         console.error("Mic check failed:", err);
-        setMicStatus("error");
+        if (isSubscribed) {
+          setMicStatus("error");
+        }
       }
 
-      // Check Camera
+      // 2. Check Camera
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        camStream = stream;
-        setCamStream(stream);
-        setCameraStatus("ok");
+        // Reuse active camera stream if available and live
+        if (camStreamRef.current && camStreamRef.current.active) {
+          const videoTracks = camStreamRef.current.getVideoTracks();
+          if (videoTracks.length > 0 && videoTracks[0].readyState === "live") {
+            if (isSubscribed) {
+              setCamStream(camStreamRef.current);
+              setCameraStatus("ok");
+            }
+            return;
+          }
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "user",
+          },
+        });
+
+        if (isSubscribed) {
+          camStreamRef.current = stream;
+          setCamStream(stream);
+          setCameraStatus("ok");
+        } else {
+          // If component unmounted while requesting, stop stream
+          stream.getTracks().forEach((track) => track.stop());
+        }
       } catch (err) {
         console.error("Camera check failed:", err);
-        setCameraStatus("error");
+        if (isSubscribed) {
+          setCameraStatus("error");
+        }
       }
     }
 
     checkDevices();
 
     return () => {
-      if (micStream) {
-        micStream.getTracks().forEach((track) => track.stop());
-      }
-      if (camStream) {
-        camStream.getTracks().forEach((track) => track.stop());
-      }
+      isSubscribed = false;
     };
   }, [isResuming]);
+
+  // Clean up camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (camStreamRef.current) {
+        camStreamRef.current.getTracks().forEach((track) => track.stop());
+        camStreamRef.current = null;
+      }
+    };
+  }, []);
 
   // Cleanup test audio on unmount
   useEffect(() => {
@@ -149,6 +216,29 @@ export function InterviewLobby({
 
     setSpeakerTested(true);
     setIsPlayingTest(true);
+
+    if (selectedVoiceId?.startsWith("local_")) {
+      try {
+        const { speak } = await import("@/hooks/use-web-speech");
+        const gender = selectedVoiceId === "local_female" ? "female" : "male";
+        const voices = typeof window !== "undefined" ? window.speechSynthesis.getVoices() : [];
+        const matchedVoice = voices.find(v => {
+          const nameLower = v.name.toLowerCase();
+          const isFemale = nameLower.includes("female") || nameLower.includes("zira") || nameLower.includes("samantha") || nameLower.includes("hazel") || nameLower.includes("siri");
+          return gender === "female" ? isFemale : !isFemale;
+        });
+
+        speak("Hello! I am your local AI interviewer. Your speaker is working.", {
+          voiceName: matchedVoice?.name || null,
+          onEnd: () => setIsPlayingTest(false),
+          onError: () => setIsPlayingTest(false)
+        });
+      } catch (err) {
+        console.error("Local Test speaker failed:", err);
+        setIsPlayingTest(false);
+      }
+      return;
+    }
 
     if (interviewId) {
       try {
@@ -177,6 +267,9 @@ export function InterviewLobby({
     if (testAudioRef.current) {
       testAudioRef.current.pause();
       testAudioRef.current = null;
+    }
+    if (selectedVoiceId?.startsWith("local_")) {
+      import("@/hooks/use-web-speech").then(({ stopSpeaking }) => stopSpeaking());
     }
     setIsPlayingTest(false);
   };

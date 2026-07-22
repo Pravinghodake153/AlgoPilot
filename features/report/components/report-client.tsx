@@ -485,10 +485,87 @@ export function ReportClient({
               </div>
 
               {showCode ? (
-                <div className="rounded-xl border border-border bg-[#1e1e1e] p-4 h-[500px] overflow-y-auto">
-                  <pre className="text-sm font-mono text-foreground/90 whitespace-pre-wrap">
-                    {interview.code || "// No code was submitted."}
-                  </pre>
+                <div className="rounded-xl border border-border bg-[#121318] p-4 h-[520px] overflow-y-auto font-mono text-xs shadow-inner">
+                  <div className="flex items-center justify-between pb-3 mb-3 border-b border-border/40 text-muted-foreground text-[11px]">
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+                      Final Submitted Code ({interview.language})
+                    </span>
+                    <span className="text-xs text-emerald-400/90 font-medium">
+                      Hover/click line badges for AI code analysis
+                    </span>
+                  </div>
+                  {(!interview.code || interview.code.trim().length === 0) ? (
+                    <div className="text-muted-foreground italic p-4 text-center">
+                      No code was submitted during this interview session.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      {interview.code.split("\n").map((lineText, lineIdx) => {
+                        const lineNum = lineIdx + 1;
+                        const trimmed = lineText.trim();
+                        
+                        // Intelligent code line annotations mapping
+                        let badge: { type: "info" | "warning" | "success" | "perf"; label: string; detail: string } | null = null;
+
+                        if (lineNum === 1 || trimmed.startsWith("function") || trimmed.startsWith("def") || trimmed.startsWith("public") || trimmed.startsWith("class")) {
+                          badge = {
+                            type: "info",
+                            label: "Signature",
+                            detail: `Function signature & entry point. Overall Code Quality: ${report.codeQualityScore}/100.`,
+                          };
+                        } else if (trimmed.startsWith("for") || trimmed.startsWith("while") || trimmed.includes("recurse")) {
+                          badge = {
+                            type: "perf",
+                            label: `Time ${report.timeComplexity || "O(N)"}`,
+                            detail: `Primary loop iteration. Computed Time Complexity: ${report.timeComplexity || "O(N)"}.`,
+                          };
+                        } else if (trimmed.includes("new ") || trimmed.includes("[]") || trimmed.includes("Map(") || trimmed.includes("Set(") || trimmed.includes("dict(")) {
+                          badge = {
+                            type: "success",
+                            label: `Space ${report.spaceComplexity || "O(1)"}`,
+                            detail: `Data structure allocation. Computed Space Complexity: ${report.spaceComplexity || "O(1)"}.`,
+                          };
+                        } else if (trimmed.startsWith("if") && (trimmed.includes("null") || trimmed.includes("==") || trimmed.includes("<="))) {
+                          badge = {
+                            type: "warning",
+                            label: "Edge Case",
+                            detail: report.weaknesses?.[0] || "Boundary and validation check.",
+                          };
+                        }
+
+                        return (
+                          <div
+                            key={lineIdx}
+                            className="group flex items-center gap-3 px-2 py-1 rounded hover:bg-white/5 transition-colors"
+                          >
+                            <span className="w-8 select-none text-right text-muted-foreground/40 text-[11px] shrink-0 font-mono">
+                              {lineNum}
+                            </span>
+                            <code className="flex-1 text-foreground/90 whitespace-pre font-mono text-[12.5px] leading-relaxed">
+                              {lineText || " "}
+                            </code>
+                            {badge && (
+                              <div
+                                className={`shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-sans font-medium cursor-help transition-all shadow-sm ${
+                                  badge.type === "perf"
+                                    ? "bg-purple-500/15 text-purple-300 border border-purple-500/30 group-hover:bg-purple-500/25"
+                                    : badge.type === "warning"
+                                    ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 group-hover:bg-amber-500/25"
+                                    : badge.type === "success"
+                                    ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 group-hover:bg-emerald-500/25"
+                                    : "bg-blue-500/15 text-blue-300 border border-blue-500/30 group-hover:bg-blue-500/25"
+                                }`}
+                                title={`${badge.label}: ${badge.detail}`}
+                              >
+                                <span>{badge.label}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-4 rounded-xl border border-border p-4 bg-muted/20 h-[500px] overflow-y-auto">
@@ -501,29 +578,36 @@ export function ReportClient({
                   return (
                     <div
                       key={i}
-                      className={`flex flex-col max-w-[85%] ${
+                      className={`flex flex-col max-w-[88%] ${
                         isAssistant ? "self-start" : "self-end"
                       }`}
                     >
                       <div
-                        className={`rounded-xl px-4 py-3 text-sm ${
+                        className={`rounded-2xl px-4.5 py-3 text-sm shadow-sm ${
                           isAssistant
-                            ? "bg-secondary text-secondary-foreground"
-                            : "bg-primary text-primary-foreground"
+                            ? "bg-slate-900/90 text-slate-100"
+                            : "bg-emerald-950/75 text-emerald-50 font-medium"
                         }`}
                       >
-                        <MessageContent content={msg.content} />
+                        <span
+                          className={`text-xs font-semibold tracking-wide uppercase block mb-1 ${
+                            isAssistant ? "text-blue-400" : "text-emerald-400 text-right"
+                          }`}
+                        >
+                          {isAssistant ? "Interviewer" : "You"}
+                        </span>
+                        <MessageContent content={msg.content} isUser={!isAssistant} />
                       </div>
                       {annotation && (
-                        <div className="mt-2 flex items-start gap-2 text-xs p-2 rounded-md border border-purple-500/30 bg-purple-500/10 text-purple-200 w-fit">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
+                        <div className="mt-2 flex items-start gap-2.5 text-xs p-3 rounded-lg border border-amber-500/40 bg-amber-500/15 text-amber-200 w-full shadow-sm">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5 text-amber-400">
                             <circle cx="12" cy="12" r="10" />
-                            <line x1="12" x2="12" y1="8" y2="12" />
-                            <line x1="12" x2="12.01" y1="16" y2="16" />
+                            <line x1="12" y1="8" x2="12" y2="12" />
+                            <line x1="12" y1="16" x2="12.01" y2="16" />
                           </svg>
                           <div className="flex flex-col">
-                            <span className="font-semibold">{annotation.tag}</span>
-                            <span className="opacity-90">{annotation.rationale}</span>
+                            <span className="font-semibold text-amber-300 tracking-wide">{annotation.tag}</span>
+                            <span className="opacity-90 text-amber-100/90 leading-relaxed">{annotation.rationale}</span>
                           </div>
                         </div>
                       )}

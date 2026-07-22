@@ -10,34 +10,136 @@ import { useInterviewStore } from "@/features/interview/store/interview-store";
  */
 
 /**
- * Global audio cache for test speaker audio clips per voice to prevent redundant API calls.
+ * Helper to strip markdown symbols and convert punctuation for natural breathing pauses in TTS:
+ * - Hyphens (—, --) -> ellipses (...)
+ * - Semicolons (;) and Colons (:) -> commas (,)
  */
-const testAudioCache = new Map<string, string>();
+export function cleanTextForSpeech(text: string): string {
+  if (!text) return "";
+  return text
+    // Remove markdown code blocks
+    .replace(/```[\s\S]*?```/g, " ")
+    // Remove bold/italic markers
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    // Remove inline backticks
+    .replace(/`([^`]+)`/g, "$1")
+    // Remove headers (# Header)
+    .replace(/^\s*#+\s+/gm, "")
+    // Remove bullet points
+    .replace(/^\s*[-*+]\s+/gm, "")
+    // Remove escaped or stray asterisks
+    .replace(/[*`_#]/g, "")
+    // Convert long hyphens and double dashes into breathing ellipses
+    .replace(/(?:—|--)/g, "... ")
+    // Convert semicolons and colons into commas for soft natural pauses
+    .replace(/;/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Cached TTS Speed setting fetched from /api/tts/settings (default 1.0)
+ */
+let cachedTtsSpeed = 1.0;
+let isTtsSpeedFetched = false;
+
+async function getActiveTtsSpeed(): Promise<number> {
+  if (isTtsSpeedFetched) return cachedTtsSpeed;
+  try {
+    const res = await fetch("/api/tts/settings");
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data.ttsSpeed === "number" && !isNaN(data.ttsSpeed)) {
+        cachedTtsSpeed = data.ttsSpeed;
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to fetch TTS speed setting:", e);
+  } finally {
+    isTtsSpeedFetched = true;
+  }
+  return cachedTtsSpeed;
+}
+
+/**
+ * Global audio cache keyed by `${voiceId}:${text}` to prevent redundant OpenRouter API calls and save money.
+ * Capped at 40 entries with LRU eviction and URL.revokeObjectURL() to prevent browser memory leaks.
+ */
+const audioCacheMap = new Map<string, string>();
+const MAX_AUDIO_CACHE_SIZE = 40;
+let activeAudioUrl: string | null = null;
+
+function setInAudioCache(key: string, url: string) {
+  if (audioCacheMap.has(key)) {
+    const existingUrl = audioCacheMap.get(key);
+    if (existingUrl && existingUrl !== url && existingUrl !== activeAudioUrl) {
+      try {
+        URL.revokeObjectURL(existingUrl);
+      } catch {}
+    }
+    audioCacheMap.delete(key);
+  } else if (audioCacheMap.size >= MAX_AUDIO_CACHE_SIZE) {
+    // Find the oldest entry that is NOT the currently active/playing URL to prevent audio decode interruption
+    let keyToEvict: string | null = null;
+    for (const k of audioCacheMap.keys()) {
+      const u = audioCacheMap.get(k);
+      if (u && u !== activeAudioUrl) {
+        keyToEvict = k;
+        break;
+      }
+    }
+    if (keyToEvict) {
+      const oldestUrl = audioCacheMap.get(keyToEvict);
+      if (oldestUrl) {
+        try {
+          URL.revokeObjectURL(oldestUrl);
+        } catch {}
+      }
+      audioCacheMap.delete(keyToEvict);
+    }
+  }
+  audioCacheMap.set(key, url);
+}
+
+async function getOrFetchAudioUrl(text: string, voiceId: string, interviewId: string): Promise<string> {
+  const clean = cleanTextForSpeech(text);
+  if (!clean) return "";
+
+  const key = `${voiceId || "default"}:${clean}`;
+  let url = audioCacheMap.get(key);
+
+  if (!url) {
+    const res = await fetch(`/api/interviews/${interviewId}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: clean, voice: voiceId }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`TTS API failed with status ${res.status}`);
+    }
+
+    const blob = await res.blob();
+    url = URL.createObjectURL(blob);
+    setInAudioCache(key, url);
+  }
+
+  return url;
+}
 
 /**
  * Utility to speak test audio for pre-interview check.
- * Caches the generated audio blob by voiceId so subsequent test clicks require ZERO API calls.
+ * Caches the generated audio blob by voiceId & text so subsequent test clicks require ZERO API calls.
  */
 export async function speakTestBackend(text: string, voiceId: string, interviewId: string, onEnd?: () => void, onError?: () => void) {
-  const cacheKey = voiceId || "default";
-
   try {
-    let url = testAudioCache.get(cacheKey);
-
-    if (!url) {
-      const res = await fetch(`/api/interviews/${interviewId}/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: voiceId }),
-      });
-      if (!res.ok) throw new Error("TTS failed");
-      
-      const blob = await res.blob();
-      url = URL.createObjectURL(blob);
-      testAudioCache.set(cacheKey, url);
-    }
-
+    const url = await getOrFetchAudioUrl(text, voiceId, interviewId);
+    if (!url) return null;
     const audio = new Audio(url);
+    audio.playbackRate = await getActiveTtsSpeed();
     
     audio.onended = () => {
       if (onEnd) onEnd();
@@ -49,7 +151,7 @@ export async function speakTestBackend(text: string, voiceId: string, interviewI
     await audio.play();
     return audio;
   } catch (e) {
-    console.error(e);
+    console.error("Test audio error:", e);
     if (onError) onError();
     return null;
   }
@@ -61,41 +163,40 @@ export async function speakTestBackend(text: string, voiceId: string, interviewI
  */
 export async function speakBackend(text: string, interviewId: string, onEnd?: () => void, onError?: () => void) {
   try {
-    const selectedVoiceId = useInterviewStore.getState().selectedVoiceId;
-    const res = await fetch(`/api/interviews/${interviewId}/tts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: selectedVoiceId }),
-    });
-    if (!res.ok) throw new Error("TTS failed");
-    
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const selectedVoiceId = useInterviewStore.getState().selectedVoiceId || "af_heart";
+    const url = await getOrFetchAudioUrl(text, selectedVoiceId, interviewId);
+    if (!url) return null;
     const audio = new Audio(url);
+    audio.playbackRate = await getActiveTtsSpeed();
     
     audio.onended = () => {
-      URL.revokeObjectURL(url);
       if (onEnd) onEnd();
     };
     audio.onerror = () => {
-      URL.revokeObjectURL(url);
       if (onError) onError();
     };
     
     await audio.play();
     return audio;
   } catch (e) {
-    console.error(e);
+    console.error("Speak backend error:", e);
     if (onError) onError();
     return null;
   }
 }
 
-export function useTTS() {
-  const sentenceBufferRef = useRef("");
+interface UseTTSResult {
+  bufferToken: (token: string) => void;
+  flushAndFinish: () => void;
+  resetTTS: () => void;
+  stopAll: () => void;
+}
+
+export function useTTS(): UseTTSResult {
+  const sentenceBufferRef = useRef<string>("");
   const ttsQueueRef = useRef<string[]>([]);
-  const isSpeakingRef = useRef(false);
-  const isDoneStreamingRef = useRef(false);
+  const isSpeakingRef = useRef<boolean>(false);
+  const isDoneStreamingRef = useRef<boolean>(false);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   /**
@@ -106,11 +207,12 @@ export function useTTS() {
       currentAudioRef.current.pause();
       currentAudioRef.current.src = "";
       currentAudioRef.current = null;
+      activeAudioUrl = null;
     }
   }, []);
 
   /**
-   * Speak sentences from the queue one at a time.
+   * Speak sentences from the queue one at a time with Gapless Pre-fetching.
    */
   const speakNextInQueue = useCallback(async function processNext() {
     if (isSpeakingRef.current || ttsQueueRef.current.length === 0) {
@@ -127,6 +229,7 @@ export function useTTS() {
           store.setAIState("idle");
         }
         isDoneStreamingRef.current = false;
+        activeAudioUrl = null;
       }
       return;
     }
@@ -136,36 +239,75 @@ export function useTTS() {
 
     const store = useInterviewStore.getState();
     const interviewId = store.interviewId;
-    const selectedVoiceId = store.selectedVoiceId;
+    const selectedVoiceId = store.selectedVoiceId || "af_heart";
 
     try {
-      const res = await fetch(`/api/interviews/${interviewId}/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: sentence, voice: selectedVoiceId }),
-      });
+      if (!interviewId) throw new Error("No interviewId active");
+      store.setAIState("speaking");
 
-      if (!res.ok) {
-        throw new Error(`TTS failed with status ${res.status}`);
+      if (selectedVoiceId.startsWith("local_")) {
+        const { speak } = await import("@/hooks/use-web-speech");
+        const gender = selectedVoiceId === "local_female" ? "female" : "male";
+        
+        const voices = typeof window !== "undefined" ? window.speechSynthesis.getVoices() : [];
+        const matchedVoice = voices.find(v => {
+          const nameLower = v.name.toLowerCase();
+          const isFemale = nameLower.includes("female") || nameLower.includes("zira") || nameLower.includes("samantha") || nameLower.includes("hazel") || nameLower.includes("siri");
+          return gender === "female" ? isFemale : !isFemale;
+        });
+
+        speak(sentence, {
+          rate: await getActiveTtsSpeed(),
+          voiceName: matchedVoice?.name || null,
+          onEnd: () => {
+            isSpeakingRef.current = false;
+            currentAudioRef.current = null;
+            activeAudioUrl = null;
+            processNext();
+          },
+          onError: () => {
+            isSpeakingRef.current = false;
+            currentAudioRef.current = null;
+            activeAudioUrl = null;
+            processNext();
+          }
+        });
+        return;
       }
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const url = await getOrFetchAudioUrl(sentence, selectedVoiceId, interviewId);
+      if (!url) {
+        isSpeakingRef.current = false;
+        activeAudioUrl = null;
+        processNext();
+        return;
+      }
+
+      // Track currently playing/active audio URL
+      activeAudioUrl = url;
+
+      // 🚀 GAPLESS PRE-FETCHING: If more sentences are queued, pre-fetch the next sentence in background!
+      if (ttsQueueRef.current.length > 0) {
+        const nextSentence = ttsQueueRef.current[0];
+        getOrFetchAudioUrl(nextSentence, selectedVoiceId, interviewId).catch(() => {});
+      }
+
       const audio = new Audio(url);
+      audio.playbackRate = await getActiveTtsSpeed();
       currentAudioRef.current = audio;
 
       audio.onended = () => {
-        URL.revokeObjectURL(url);
         isSpeakingRef.current = false;
         currentAudioRef.current = null;
+        activeAudioUrl = null;
         processNext();
       };
 
       audio.onerror = () => {
         console.error("Audio playback error");
-        URL.revokeObjectURL(url);
         isSpeakingRef.current = false;
         currentAudioRef.current = null;
+        activeAudioUrl = null;
         processNext();
       };
 
@@ -173,6 +315,7 @@ export function useTTS() {
     } catch (e) {
       console.error("TTS fetch/play error:", e);
       isSpeakingRef.current = false;
+      activeAudioUrl = null;
       processNext();
     }
   }, []);

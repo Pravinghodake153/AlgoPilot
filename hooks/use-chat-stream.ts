@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { useInterviewStore } from "@/features/interview/store/interview-store";
 import { readSSEStream } from "@/lib/sse-utils";
 
@@ -27,6 +27,10 @@ export function useChatStream(options: UseChatStreamOptions) {
   const isMountedRef = useRef(true);
   const streamingMsgIdRef = useRef<string | null>(null);
   const lastExecResultRef = useRef<Record<string, unknown> | null>(null);
+  
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const lastUserMessageRef = useRef<string>("");
+  const isRetryingRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -63,6 +67,8 @@ export function useChatStream(options: UseChatStreamOptions) {
     const store = useInterviewStore.getState();
     store.setIsStreaming(false);
     streamingMsgIdRef.current = null;
+    setIsReconnecting(false);
+    isRetryingRef.current = false;
 
     // If we're in voice mode, go to listening. Otherwise idle.
     if (store.mode === "voice") {
@@ -74,18 +80,20 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   /**
    * Send a message to the AI and stream the response.
-   * Safe to call from either text or voice mode.
+   * Supports automatic reconnection and 2-second auto-retry on network drop.
    */
   const sendMessage = useCallback(
-    async (message: string) => {
+    async (message: string, isRetry = false) => {
       const store = useInterviewStore.getState();
-      if (!store.interviewId || store.isStreaming) return;
+      if (!store.interviewId || (store.isStreaming && !isRetry)) return;
 
-      // Mark as streaming to prevent concurrent requests
+      lastUserMessageRef.current = message;
       store.setIsStreaming(true);
 
-      // Add user message to transcript
-      store.addMessage("user", message);
+      // Add user message to transcript only on initial attempt
+      if (!isRetry) {
+        store.addMessage("user", message);
+      }
       store.setAIState("thinking");
 
       let isTimeout = false;
@@ -121,6 +129,65 @@ export function useChatStream(options: UseChatStreamOptions) {
 
       resetTimeout();
 
+      const handleNetworkError = async (err: any, msgIdToUpdate?: string) => {
+        clearTimeout(timeoutIdRef.current);
+        if (!isMountedRef.current) return;
+
+        // User aborted intentionally -> do not reconnect
+        if (err instanceof DOMException && err.name === "AbortError") {
+          forceRecovery();
+          options.onError?.(err);
+          return;
+        }
+
+        console.error("Stream error:", err);
+
+        // 🔄 AUTO-RETRY ONCE AFTER 2-SECOND DELAY FOR NETWORK DROP
+        if (!isRetry && !isRetryingRef.current) {
+          isRetryingRef.current = true;
+          setIsReconnecting(true);
+          console.warn("Network drop detected. Retrying message in 2 seconds...");
+
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              sendMessage(lastUserMessageRef.current, true);
+            }
+          }, 2000);
+          return;
+        }
+
+        // Retry also failed or exhausted
+        setIsReconnecting(false);
+        isRetryingRef.current = false;
+
+        const errMsg = isTimeout
+          ? "We encountered a timeout. Please try sending your message again."
+          : "Sorry, I encountered a connection issue. Could you repeat that?";
+
+        const targetMsgId = msgIdToUpdate || streamingMsgIdRef.current;
+
+        useInterviewStore.setState((state) => {
+          const hasTarget = targetMsgId && state.messages.some((m) => m.id === targetMsgId);
+          if (hasTarget) {
+            return {
+              messages: state.messages.map((m) =>
+                m.id === targetMsgId ? { ...m, content: errMsg } : m
+              ),
+            };
+          }
+          // Remove any stray empty assistant message at the end
+          const cleaned = state.messages.filter(
+            (m) => !(m.role === "assistant" && !m.content.trim())
+          );
+          return {
+            messages: [...cleaned, { id: `msg-${Date.now()}`, role: "assistant", content: errMsg, timestamp: Date.now() }],
+          };
+        });
+
+        forceRecovery();
+        options.onError?.(err instanceof Error ? err : new Error("Unknown error"));
+      };
+
       try {
         const response = await fetch(
           `/api/interviews/${store.interviewId}/chat`,
@@ -142,13 +209,16 @@ export function useChatStream(options: UseChatStreamOptions) {
           throw new Error(`Failed to get response (${response.status})`);
         }
 
+        // Successfully connected! Clear reconnecting state
+        setIsReconnecting(false);
+        isRetryingRef.current = false;
+
         // Create a placeholder message for streaming
         const msgId = `msg-${Date.now()}-${Math.random()
           .toString(36)
           .slice(2, 7)}`;
         streamingMsgIdRef.current = msgId;
 
-        // Add empty assistant message that we'll update as tokens arrive
         useInterviewStore.setState((state) => ({
           messages: [
             ...state.messages,
@@ -187,6 +257,8 @@ export function useChatStream(options: UseChatStreamOptions) {
             }));
             streamingMsgIdRef.current = null;
             lastExecResultRef.current = null;
+            setIsReconnecting(false);
+            isRetryingRef.current = false;
             const store = useInterviewStore.getState();
             store.setIsStreaming(false);
             if (store.mode === "text") {
@@ -196,54 +268,11 @@ export function useChatStream(options: UseChatStreamOptions) {
           },
           // onError
           (err) => {
-            clearTimeout(timeoutIdRef.current);
-            
-            // If the stream was aborted manually, do not show connection error message
-            if (err instanceof DOMException && err.name === "AbortError") {
-              forceRecovery();
-              options.onError?.(err);
-              return;
-            }
-
-            console.error("Stream error:", err);
-
-            const errMsg = isTimeout
-              ? "We encountered an error. Please try again."
-              : "Sorry, I encountered a connection issue. Could you repeat that?";
-
-            useInterviewStore.setState((state) => ({
-              messages: state.messages.map((m) =>
-                m.id === msgId
-                  ? { ...m, content: errMsg }
-                  : m
-              ),
-            }));
-
-            // CRITICAL: Always recover state so next message isn't blocked
-            forceRecovery();
-            options.onError?.(err);
+            handleNetworkError(err, msgId);
           }
         );
       } catch (err) {
-        clearTimeout(timeoutIdRef.current);
-        if (!isMountedRef.current) return;
-
-        // Check if aborted in catch block
-        if (err instanceof DOMException && err.name === "AbortError") {
-          forceRecovery();
-          options.onError?.(err);
-          return;
-        }
-
-        const errMsg = isTimeout
-          ? "We encountered an error. Please try again."
-          : "Sorry, I encountered a connection issue. Could you repeat that?";
-
-        useInterviewStore.getState().addMessage("assistant", errMsg);
-
-        // CRITICAL: Always recover state so next message isn't blocked
-        forceRecovery();
-        options.onError?.(err instanceof Error ? err : new Error("Unknown error"));
+        handleNetworkError(err);
       }
     },
     [options, forceRecovery]
@@ -258,5 +287,5 @@ export function useChatStream(options: UseChatStreamOptions) {
     forceRecovery();
   }, [forceRecovery]);
 
-  return { sendMessage, stopGeneration, forceRecovery };
+  return { sendMessage, stopGeneration, forceRecovery, isReconnecting };
 }

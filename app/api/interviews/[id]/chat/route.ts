@@ -32,7 +32,16 @@ export async function POST(req: Request, context: RouteContext) {
 
     const { id } = await context.params;
     const body = await req.json();
-    const { message, code, executionResult, timeRemainingSeconds, voiceId } = body;
+    const {
+      message,
+      code,
+      executionResult,
+      timeRemainingSeconds,
+      voiceId,
+      tabSwitchCount: bodyTabSwitch,
+      outOfFrameCount: bodyOutOfFrame,
+      multiplePeopleCount: bodyMultiplePeople,
+    } = body;
 
     if (!message || typeof message !== "string") {
       return new Response(JSON.stringify({ error: "Message is required" }), {
@@ -87,7 +96,19 @@ export async function POST(req: Request, context: RouteContext) {
       },
     });
 
-    // Build conversation history
+    // Authoritative backend data loading directly from database (not from frontend chat payload)
+    const dbTabSwitch = (interview as any).tabSwitchCount ?? 0;
+    const dbOutOfFrame = (interview as any).outOfFrameCount ?? 0;
+    const dbMultiplePeople = (interview as any).multiplePeopleCount ?? 0;
+
+    const dbHintCount = await prisma.eventLog.count({
+      where: {
+        interviewId: id,
+        eventType: "HINT_REQUESTED",
+      },
+    });
+
+    // Build system prompt using authoritative backend DB data
     const systemPrompt = buildInterviewerSystemPrompt({
       problemTitle: interview.problemTitle,
       problemDescription: interview.problemDescription,
@@ -100,44 +121,55 @@ export async function POST(req: Request, context: RouteContext) {
           ? timeRemainingSeconds
           : undefined,
       voiceId,
+      tabSwitchCount: dbTabSwitch,
+      outOfFrameCount: dbOutOfFrame,
+      multiplePeopleCount: dbMultiplePeople,
+      hintCount: dbHintCount,
     });
 
+    // Build full user prompt combining message + editor code + execution result into a single payload
+    let fullUserMessage = message;
+
+    // Inject candidate's live code with line numbers so AI can reference line numbers accurately
+    const liveCode = code || interview.code;
+    if (liveCode && liveCode.trim().length > 0) {
+      const numberedCode = liveCode
+        .split("\n")
+        .map((line: string, idx: number) => `${idx + 1}: ${line}`)
+        .join("\n");
+      fullUserMessage += `\n\n[CONTEXT — Candidate's current code in the editor (with line numbers)]:\n\`\`\`${interview.language}\n${numberedCode}\n\`\`\``;
+    }
+
+    // Inject code execution result context if candidate ran code
+    if (executionResult) {
+      const status = executionResult.statusDescription || "Completed";
+      const stderr = executionResult.stderr || executionResult.compileOutput;
+      const stdout = executionResult.stdout;
+      
+      const execSummary = stderr
+        ? `[CONTEXT — Code execution completed with STATUS: "${status}"]: Error output:\n${stderr}`
+        : stdout
+          ? `[CONTEXT — Code execution SUCCESSFUL (Status: "${status}")]: Output:\n${stdout}\nExecution Time: ${executionResult.time || "<0.1"}s, Memory: ${executionResult.memory || 0} KB`
+          : `[CONTEXT — Code execution completed with STATUS: "${status}" with no printed output]`;
+
+      fullUserMessage += `\n\n${execSummary}`;
+    }
+
+    // Build conversation history ensuring valid role sequence
     const conversationHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       ...interview.messages.map((m) => ({
         role: m.role as "assistant" | "user",
         content: m.content,
       })),
-      { role: "user" as const, content: message },
+      { role: "user" as const, content: fullUserMessage },
     ];
-
-    // Inject candidate's live code
-    const liveCode = code || interview.code;
-    if (liveCode) {
-      conversationHistory.push({
-        role: "user",
-        content: `[CONTEXT — Candidate's current code in the editor]:\n\`\`\`${interview.language}\n${liveCode}\n\`\`\``,
-      });
-    }
-
-    // Inject execution result
-    if (executionResult) {
-      const execSummary = executionResult.stderr
-        ? `[CONTEXT — Code execution FAILED with error]:\n${executionResult.stderr}`
-        : executionResult.stdout
-          ? `[CONTEXT — Code executed successfully. Output]:\n${executionResult.stdout}\nTime: ${executionResult.time}s, Memory: ${executionResult.memory} KB`
-          : `[CONTEXT — Code executed successfully with no output]`;
-      conversationHistory.push({
-        role: "user",
-        content: execSummary,
-      });
-    }
 
     // Stream AI response and save to DB on completion
     try {
       const { stream } = await deepseekChatStream(conversationHistory, {
         temperature: 0.7,
-        maxTokens: 1024,
+        maxTokens: 2560,
         onComplete: async (result) => {
           try {
             await prisma.message.create({
@@ -173,9 +205,38 @@ export async function POST(req: Request, context: RouteContext) {
       console.error("Streaming error:", error);
       const fallback =
         "I apologize, I'm having a brief technical issue. Could you repeat what you just said? Let's continue with the problem.";
-      return new Response(JSON.stringify({ response: fallback }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
+
+      // 1. Save fallback message to DB to preserve chat context integrity
+      try {
+        await prisma.message.create({
+          data: {
+            interviewId: id,
+            role: "assistant",
+            content: fallback,
+          },
+        });
+      } catch (dbErr) {
+        console.error("Error saving fallback message to DB:", dbErr);
+      }
+
+      // 2. Stream fallback as valid text/event-stream SSE so frontend renders and speaks it smoothly
+      const encoder = new TextEncoder();
+      const fallbackStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ token: fallback })}\n\n`)
+          );
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+        },
+      });
+
+      return new Response(fallbackStream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
       });
     }
   } catch (error) {

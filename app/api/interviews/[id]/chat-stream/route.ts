@@ -33,10 +33,10 @@ export async function POST(req: Request, context: RouteContext) {
     }
 
     // Stream AI response
-    try { console.log("CHAT-STREAM ACCESSED");
+    try {
       const { stream } = await deepseekChatStream(conversationHistory, {
         temperature: 0.7,
-        maxTokens: 1024,
+        maxTokens: 2560,
       });
       
       return new Response(stream, {

@@ -47,6 +47,7 @@ export function useFaceDetection({
   // Duration Timer Refs
   const outOfFrameStartTimeRef = useRef<number | null>(null);
   const lastLoggedSecondRef = useRef<number>(0);
+  const multiplePeopleCountRef = useRef<number>(0);
 
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
@@ -225,7 +226,15 @@ export function useFaceDetection({
             setShowWarning(true);
             consecutiveMissRef.current = 0;
 
+            multiplePeopleCountRef.current += 1;
+            const newCount = multiplePeopleCountRef.current;
             if (interviewId) {
+              fetch(`/api/interviews/${interviewId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ multiplePeopleCount: newCount }),
+              }).catch((err) => console.error("Failed to sync DB:", err));
+
               fetch(`/api/events`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

@@ -183,80 +183,60 @@ export interface VoiceOption {
   name: string;
   label: string;
   gender: "male" | "female";
+  engine?: string;
 }
 
 /**
- * Returns the 10 supported Kokoro-82m voices.
+ * Returns supported Indian-named voices filtered by target TTS model.
  */
-export function getAvailableVoices(): VoiceOption[] {
-  return [
-    {
-      id: "am_adam",
-      name: "am_adam",
-      label: "Adam (US Male)",
-      gender: "male",
-    },
-    {
-      id: "am_michael",
-      name: "am_michael",
-      label: "Michael (US Male)",
-      gender: "male",
-    },
-    {
-      id: "am_fenrir",
-      name: "am_fenrir",
-      label: "Fenrir (US Male)",
-      gender: "male",
-    },
-    {
-      id: "am_puck",
-      name: "am_puck",
-      label: "Puck (US Male)",
-      gender: "male",
-    },
-    {
-      id: "am_echo",
-      name: "am_echo",
-      label: "Echo (US Male)",
-      gender: "male",
-    },
-    {
-      id: "af_heart",
-      name: "af_heart",
-      label: "Nova (US Female)",
-      gender: "female",
-    },
-    {
-      id: "af_bella",
-      name: "af_bella",
-      label: "Bella (US Female)",
-      gender: "female",
-    },
-    {
-      id: "af_sarah",
-      name: "af_sarah",
-      label: "Sarah (US Female)",
-      gender: "female",
-    },
-    {
-      id: "af_nicole",
-      name: "af_nicole",
-      label: "Nicole (US Female)",
-      gender: "female",
-    },
-    {
-      id: "af_sky",
-      name: "af_sky",
-      label: "Sky (US Female)",
-      gender: "female",
-    },
-    {
-      id: "if_sara",
-      name: "if_sara",
-      label: "Sara (India Female)",
-      gender: "female",
-    },
+export function getAvailableVoices(model?: string): VoiceOption[] {
+  const allVoices: VoiceOption[] = [
+    // ── Kokoro 82M Voices (Kokoro Engine) ──────────────────────────
+    { id: "am_adam", name: "Aarav", label: "Aarav (Kokoro Male)", gender: "male", engine: "Kokoro" },
+    { id: "am_michael", name: "Rohan", label: "Rohan (Kokoro Male)", gender: "male", engine: "Kokoro" },
+    { id: "am_fenrir", name: "Vikram", label: "Vikram (Kokoro Male)", gender: "male", engine: "Kokoro" },
+    { id: "am_puck", name: "Kabir", label: "Kabir (Kokoro Male)", gender: "male", engine: "Kokoro" },
+    { id: "am_echo", name: "Aditya", label: "Aditya (Kokoro Male)", gender: "male", engine: "Kokoro" },
+    { id: "af_heart", name: "Ananya", label: "Ananya (Kokoro Female)", gender: "female", engine: "Kokoro" },
+    { id: "af_bella", name: "Diya", label: "Diya (Kokoro Female)", gender: "female", engine: "Kokoro" },
+    { id: "af_sarah", name: "Isha", label: "Isha (Kokoro Female)", gender: "female", engine: "Kokoro" },
+    { id: "af_nicole", name: "Kavya", label: "Kavya (Kokoro Female)", gender: "female", engine: "Kokoro" },
+    { id: "af_sky", name: "Meera", label: "Meera (Kokoro Female)", gender: "female", engine: "Kokoro" },
+    { id: "if_sara", name: "Priya", label: "Priya (Kokoro Female)", gender: "female", engine: "Kokoro" },
+
+    // ── MiniMax Voices (MiniMax Engine) ────────────────────────────
+    { id: "minimax_male_presenter", name: "Dev", label: "Dev (MiniMax Male)", gender: "male", engine: "MiniMax" },
+    { id: "minimax_female_shaonv", name: "Riya", label: "Riya (MiniMax Female)", gender: "female", engine: "MiniMax" },
+    { id: "minimax_female_yujie", name: "Sanya", label: "Sanya (MiniMax Female)", gender: "female", engine: "MiniMax" },
+
+    // ── Gemini / OpenAI Voices (Gemini Engine) ─────────────────────
+    { id: "gemini_alloy", name: "Neer", label: "Neer (Gemini Male)", gender: "male", engine: "Gemini" },
+    { id: "gemini_echo", name: "Siddharth", label: "Siddharth (Gemini Male)", gender: "male", engine: "Gemini" },
+    { id: "gemini_onyx", name: "Varun", label: "Varun (Gemini Male)", gender: "male", engine: "Gemini" },
+    { id: "gemini_nova", name: "Tara", label: "Tara (Gemini Female)", gender: "female", engine: "Gemini" },
+    { id: "gemini_shimmer", name: "Neha", label: "Neha (Gemini Female)", gender: "female", engine: "Gemini" },
+
+    // ── Local System Voices (Browser Native Engine) ────────────────
+    { id: "local_male", name: "System Male", label: "Local Browser Male (0ms Latency)", gender: "male", engine: "Local" },
+    { id: "local_female", name: "System Female", label: "Local Browser Female (0ms Latency)", gender: "female", engine: "Local" },
   ];
+
+  if (!model || model === "auto") {
+    return allVoices;
+  }
+
+  const lower = model.toLowerCase();
+  let filtered = allVoices;
+
+  if (lower.includes("kokoro")) {
+    filtered = allVoices.filter((v) => v.engine === "Kokoro" || v.engine === "Local");
+  } else if (lower.includes("minimax")) {
+    filtered = allVoices.filter((v) => v.engine === "MiniMax" || v.engine === "Local");
+  } else if (lower.includes("gemini") || lower.includes("openai")) {
+    filtered = allVoices.filter((v) => v.engine === "Gemini" || v.engine === "Local");
+  }
+
+  return filtered;
 }
 
 function getDefaultVoiceList(): VoiceOption[] {
