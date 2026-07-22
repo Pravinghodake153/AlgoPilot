@@ -174,12 +174,12 @@ export async function deepseekChat(
   }
 
   try {
-    return await makeRequest(url, key, model, isOpenRouter, messages, options, 25000);
+    return await makeRequest(url, key, model, isOpenRouter, messages, options, 90000);
   } catch (err) {
     console.error(`${activeProviderToUse} failed. Attempting Z.AI fallback...`, err);
     if (activeProviderToUse !== "zai" && config.zai.key) {
       try {
-        return await makeRequest(config.zai.url, config.zai.key, "glm-4.7-flash", false, messages, options, 25000);
+        return await makeRequest(config.zai.url, config.zai.key, "glm-4.7-flash", false, messages, options, 90000);
       } catch (fallbackErr) {
         console.error("Z.AI fallback also failed:", fallbackErr);
       }
@@ -286,7 +286,7 @@ export async function deepseekChatStream(
 
   for (const candidate of uniqueChain) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s connection timeout for ultra-fast provider failover
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s connection timeout for ultra-fast provider failover
     const isOpenRouter = candidate.provider === "openrouter";
 
     try {
@@ -436,18 +436,18 @@ export async function deepseekChatStream(
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        // Race upstream stream read against 12-second inactivity watchdog timeout
+        // Race upstream stream read against 30-second inactivity watchdog timeout
         let watchdogTimer: NodeJS.Timeout | null = null;
         const readPromise = upstreamReader.read();
         const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array; timeout: boolean }>((resolve) => {
-          watchdogTimer = setTimeout(() => resolve({ done: true, timeout: true }), 12000);
+          watchdogTimer = setTimeout(() => resolve({ done: true, timeout: true }), 30000);
         });
 
         const result = await Promise.race([readPromise, timeoutPromise]);
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
         if ("timeout" in result && result.timeout) {
-          console.warn("[AI-Service] Upstream stream read timed out after 12s of inactivity");
+          console.warn("[AI-Service] Upstream stream read timed out after 30s of inactivity");
           await handleFinish(controller);
           return;
         }
