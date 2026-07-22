@@ -238,31 +238,49 @@ export function useChatStream(options: UseChatStreamOptions) {
           // onToken
           (token, isReasoning) => {
             resetTimeout();
-            useInterviewStore.setState((state) => ({
-              messages: state.messages.map((m) =>
-                m.id === msgId
-                  ? { ...m, content: m.content + token }
-                  : m
-              ),
-            }));
+            const currentMsg = useInterviewStore.getState().messages.find((m) => m.id === msgId);
+            const nextContent = (currentMsg?.content ?? "") + token;
+            useInterviewStore.getState().appendOrUpdateAssistantMessage(msgId, nextContent);
             options.onToken?.(token, isReasoning);
           },
           // onDone
-          (fullText) => {
+          async (fullText) => {
             clearTimeout(timeoutIdRef.current);
-            useInterviewStore.setState((state) => ({
-              messages: state.messages.map((m) =>
-                m.id === msgId ? { ...m, content: fullText } : m
-              ),
-            }));
+            const currentMsg = useInterviewStore.getState().messages.find((m) => m.id === msgId);
+            const textToUse = fullText || (currentMsg?.content ?? "");
+            
+            useInterviewStore.getState().appendOrUpdateAssistantMessage(msgId, textToUse);
+            const didPasteSuccessfully = textToUse.trim().length > 0;
+
+            if (didPasteSuccessfully) {
+              console.log(`[Chat-Stream] ✅ Response successfully pasted in chat logs (${fullText.length} chars) [msgId: ${msgId}]`);
+            } else {
+              console.warn(`[Chat-Stream] ⚠️ WARNING: Response was NOT pasted into chat section! Attempting auto-recovery from DB... [msgId: ${msgId}]`);
+              try {
+                const interviewId = store.interviewId;
+                if (interviewId) {
+                  const dbRes = await fetch(`/api/interviews/${interviewId}`);
+                  if (dbRes.ok) {
+                    const dbData = await dbRes.json();
+                    if (dbData.interview?.messages) {
+                      useInterviewStore.setState({ messages: dbData.interview.messages });
+                      console.log(`[Chat-Stream] 🔄 Successfully recovered and pasted chat logs from DB! (${dbData.interview.messages.length} messages)`);
+                    }
+                  }
+                }
+              } catch (recErr) {
+                console.error("[Chat-Stream] Error recovering messages from DB:", recErr);
+              }
+            }
+
             streamingMsgIdRef.current = null;
             lastExecResultRef.current = null;
             setIsReconnecting(false);
             isRetryingRef.current = false;
-            const store = useInterviewStore.getState();
-            store.setIsStreaming(false);
-            if (store.mode === "text") {
-              store.setAIState("idle");
+            const currentStore = useInterviewStore.getState();
+            currentStore.setIsStreaming(false);
+            if (currentStore.mode === "text") {
+              currentStore.setAIState("idle");
             }
             options.onDone?.(fullText);
           },

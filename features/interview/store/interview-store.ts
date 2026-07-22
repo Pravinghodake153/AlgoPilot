@@ -140,6 +140,7 @@ interface InterviewState {
   setShowAIPanel: (show: boolean) => void;
   setEditorSplitPercent: (percent: number) => void;
   setProblemSplitPercent: (percent: number) => void;
+  appendOrUpdateAssistantMessage: (msgId: string, content: string) => void;
   useHint: () => void;
   setSaveStatus: (status: InterviewState["saveStatus"]) => void;
   reset: () => void;
@@ -303,6 +304,22 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       problemSplitPercent,
     });
   },
+
+  appendOrUpdateAssistantMessage: (msgId, content) =>
+    set((state) => {
+      const idx = state.messages.findIndex((m) => m.id === msgId);
+      if (idx !== -1) {
+        const updated = [...state.messages];
+        updated[idx] = { ...updated[idx], content };
+        return { messages: updated };
+      }
+      return {
+        messages: [
+          ...state.messages,
+          { id: msgId, role: "assistant", content, timestamp: Date.now() },
+        ],
+      };
+    }),
 
   useHint: () => set((state) => ({ hintsUsed: state.hintsUsed + 1 })),
 

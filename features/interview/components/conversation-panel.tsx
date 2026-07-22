@@ -153,36 +153,42 @@ export function ConversationPanel() {
             );
           })}
 
-          {/* Typing indicator when AI is thinking */}
-          {aiState === "thinking" && (
-            <div className="transcript-message p-3 rounded-lg border-none bg-slate-900/50 shadow-sm">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
-                  <rect width="18" height="18" x="3" y="3" rx="2" />
-                  <path d="M9 14h6" />
-                  <circle cx="9" cy="9" r="1" />
-                  <circle cx="15" cy="9" r="1" />
-                </svg>
-                <span className="text-xs font-medium text-blue-400">
-                  Interviewer
-                </span>
+          {/* Typing indicator when AI is thinking (only if not already rendering inside an empty assistant message) */}
+          {aiState === "thinking" &&
+            !(
+              messages.length > 0 &&
+              messages[messages.length - 1].role === "assistant" &&
+              (!messages[messages.length - 1].content ||
+                !messages[messages.length - 1].content.trim())
+            ) && (
+              <div className="transcript-message p-3 rounded-lg border-none bg-slate-900/50 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+                    <rect width="18" height="18" x="3" y="3" rx="2" />
+                    <path d="M9 14h6" />
+                    <circle cx="9" cy="9" r="1" />
+                    <circle cx="15" cy="9" r="1" />
+                  </svg>
+                  <span className="text-xs font-medium text-blue-400">
+                    Interviewer
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center gap-1">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce"
+                    style={{ animationDelay: "0ms", animationDuration: "600ms" }}
+                  />
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce"
+                    style={{ animationDelay: "150ms", animationDuration: "600ms" }}
+                  />
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce"
+                    style={{ animationDelay: "300ms", animationDuration: "600ms" }}
+                  />
+                </div>
               </div>
-              <div className="mt-2 flex items-center gap-1">
-                <span
-                  className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce"
-                  style={{ animationDelay: "0ms", animationDuration: "600ms" }}
-                />
-                <span
-                  className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce"
-                  style={{ animationDelay: "150ms", animationDuration: "600ms" }}
-                />
-                <span
-                  className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce"
-                  style={{ animationDelay: "300ms", animationDuration: "600ms" }}
-                />
-              </div>
-            </div>
-          )}
+            )}
         </div>
       )}
     </div>
