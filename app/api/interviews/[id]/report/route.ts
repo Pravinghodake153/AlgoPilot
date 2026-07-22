@@ -11,6 +11,7 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Extend Vercel timeout to 60 seconds
 
 /**

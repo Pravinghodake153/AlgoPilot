@@ -6,6 +6,8 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request, context: RouteContext) {
   try {
     const { userId: clerkId } = await auth();

@@ -10,6 +10,8 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/interviews/[id]/start
  * Starts the interview — sets status to in_progress and generates
