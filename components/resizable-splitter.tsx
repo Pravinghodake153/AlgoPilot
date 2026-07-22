@@ -3,9 +3,7 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 
 interface ResizableSplitterProps {
-  /** Current split percentage (0-100) for the first panel */
   splitPercent: number;
-  /** Called when the user drags the splitter */
   onResize: (percent: number) => void;
   /** Direction of the split */
   direction: "horizontal" | "vertical";
@@ -15,10 +13,6 @@ interface ResizableSplitterProps {
   maxFirst?: number;
 }
 
-/**
- * Draggable splitter bar between two panels.
- * Supports both horizontal (left/right) and vertical (top/bottom) splits.
- */
 export function ResizableSplitter({
   splitPercent,
   onResize,
@@ -52,7 +46,6 @@ export function ResizableSplitter({
         newPercent = ((e.clientY - rect.top) / rect.height) * 100;
       }
 
-      // Clamp
       newPercent = Math.max(minFirst, Math.min(maxFirst, newPercent));
       onResize(Math.round(newPercent));
     }
