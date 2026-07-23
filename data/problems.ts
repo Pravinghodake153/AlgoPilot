@@ -5,7 +5,7 @@ import { CodingProblem } from "@/types";
  * AI selects from this set based on user's qualification, understanding level,
  * and chosen difficulty.
  *
- * Distribution: 10 Easy, 12 Medium, 8 Hard
+ * Distribution: 10 Easy, 12 Medium
  */
 export const CODING_PROBLEMS: CodingProblem[] = [
   // ─── EASY (10 problems) ─────────────────────
