@@ -5,7 +5,7 @@ import { useInterviewStore } from "@/features/interview/store/interview-store";
 import { readSSEStream } from "@/lib/sse-utils";
 
 interface UseChatStreamOptions {
-  /** Called on each token (for TTS buffering) */
+  
   onToken?: (token: string, isReasoning?: boolean) => void;
   /** Called when stream finishes successfully */
   onDone?: (fullText: string) => void;
