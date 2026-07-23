@@ -6,7 +6,6 @@ export async function POST(req: Request) {
   try {
     const { userId: clerkId } = await auth();
     
-    // We can still log anonymous events if clerkId is missing, but let's try to map it to a user.
     let userId = null;
     if (clerkId) {
       const user = await prisma.user.findUnique({
