@@ -5,10 +5,7 @@ import { InterviewList } from "@/features/interview/components/interview-list";
 import { StartInterviewButton } from "@/features/interview/components/start-interview-button";
 import { ProgressChart } from "@/features/dashboard/components/progress-chart";
 
-/**
- * Dashboard page — Welcome message, Start Interview CTA, Previous Interviews list.
- * Per UI/UX spec: "Simple. Welcome, Start Interview, Previous Interviews, Recent Reports. Nothing else."
- */
+
 export default async function DashboardPage() {
   const { userId: clerkId } = await auth();
 
