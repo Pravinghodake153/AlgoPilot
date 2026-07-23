@@ -150,64 +150,7 @@ export function InterviewClient({
     return () => window.removeEventListener("keydown", handleGlobalEsc);
   }, [stopTTS, handleStopGeneration]);
 
-  // ─── 5-Minute Periodic Proctoring Warning Interval ─────
-  useEffect(() => {
-    if (!isInterviewActive) return;
 
-    const intervalId = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/interviews/${interview.id}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const currentTabSwitch = data.interview?.tabSwitchCount ?? tabSwitchCount;
-        const currentOutOfFrame = data.interview?.outOfFrameCount ?? outOfFrameCount;
-        const currentMultiplePeople = data.interview?.multiplePeopleCount ?? 0;
-
-        if (currentTabSwitch > 0 || currentOutOfFrame > 0 || currentMultiplePeople > 0) {
-          const warningDetails: string[] = [];
-          if (currentTabSwitch > 0) warningDetails.push(`${currentTabSwitch} tab switch(es)`);
-          if (currentOutOfFrame > 0) warningDetails.push(`${currentOutOfFrame}s out of camera frame`);
-          if (currentMultiplePeople > 0) warningDetails.push(`${currentMultiplePeople} multiple person detection(s)`);
-
-          const warningMessageText = `Proctoring Warning: Total recorded violations so far: ${warningDetails.join(", ")}. Please stay focused on the interview window and remain in camera frame.`;
-
-          const warningMsgId = `msg-warn-${Date.now()}`;
-          useInterviewStore.setState((state) => {
-            const lastMsg = state.messages[state.messages.length - 1];
-            if (lastMsg && lastMsg.content === warningMessageText) return state;
-
-            return {
-              messages: [
-                ...state.messages,
-                {
-                  id: warningMsgId,
-                  role: "assistant",
-                  content: warningMessageText,
-                  timestamp: Date.now(),
-                },
-              ],
-            };
-          });
-
-          const currentStore = useInterviewStore.getState();
-          if (!currentStore.isSpeakerMuted) {
-            currentStore.setAIState("speaking");
-            speakBackend(warningMessageText, interview.id, () => {
-              const s = useInterviewStore.getState();
-              s.setAIState(s.mode === "voice" ? "listening" : "idle");
-            }, () => {
-              const s = useInterviewStore.getState();
-              s.setAIState(s.mode === "voice" ? "listening" : "idle");
-            });
-          }
-        }
-      } catch (err) {
-        console.error("Periodic proctoring warning check error:", err);
-      }
-    }, 300000); // 5 minutes
-
-    return () => clearInterval(intervalId);
-  }, [isInterviewActive, interview.id, tabSwitchCount, outOfFrameCount]);
 
   // Redirect to report page when interview is completed
   useEffect(() => {

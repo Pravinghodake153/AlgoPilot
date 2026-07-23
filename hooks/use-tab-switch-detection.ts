@@ -65,13 +65,6 @@ export function useTabSwitchDetection({
             body: JSON.stringify({ tabSwitchCount: nextCount }),
           }).catch((err) => console.error("Failed to sync tabSwitchCount to DB:", err));
 
-          // Auto-append System Malpractice Warning Card to Chat transcript
-          const warningText = `Proctoring Warning: Tab switch detected (${nextCount} recorded violation(s)). Please stay focused on the interview window.`;
-          useInterviewStore.getState().appendOrUpdateAssistantMessage(
-            `msg-warn-tab-${Date.now()}`,
-            warningText
-          );
-
           // Log the event
           fetch(`/api/events`, {
             method: "POST",

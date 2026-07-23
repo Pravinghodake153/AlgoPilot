@@ -602,29 +602,21 @@ TIME BEHAVIOR (UNDER 5 MINUTES):
     }
   }
 
-  // Build proctoring violations context
-  let proctoringContext = "";
-  const violations: string[] = [];
-  if (typeof config.tabSwitchCount === "number" && config.tabSwitchCount > 0) {
-    violations.push(`Tab switches detected: ${config.tabSwitchCount} times`);
-  }
-  if (typeof config.outOfFrameCount === "number" && config.outOfFrameCount > 0) {
-    violations.push(`Out of camera frame duration: ${config.outOfFrameCount} seconds`);
-  }
-  if (typeof config.multiplePeopleCount === "number" && config.multiplePeopleCount > 0) {
-    violations.push(`Multiple persons detected in camera frame: ${config.multiplePeopleCount} times`);
-  }
-  if (typeof config.hintCount === "number" && config.hintCount > 0) {
-    violations.push(`Hints requested so far: ${config.hintCount}`);
-  }
+  // Build proctoring violations context for AI awareness
+  const tabSwitches = config.tabSwitchCount ?? 0;
+  const outOfFrame = config.outOfFrameCount ?? 0;
+  const multiplePeople = config.multiplePeopleCount ?? 0;
+  const hints = config.hintCount ?? 0;
 
-  if (violations.length > 0) {
-    proctoringContext = `
-PROCTORING LOGS & CONDUCT AUDIT:
-Proctoring violations logged for candidate evaluation:
-${violations.map((v) => `- ${v}`).join("\n")}
-(Note: System-side malpractice alerts handle direct warnings. Focus purely on technical evaluation.)`;
-  }
+  const proctoringContext = `
+PROCTORING & INTEGRITY AUDIT DATA (FOR INTERVIEWER AWARENESS):
+Candidate's current logged malpractice and assistance metrics:
+- Tab Switches: ${tabSwitches} time(s)
+- Out of Camera Frame: ${outOfFrame} second(s)
+- Multiple Persons Detected: ${multiplePeople} time(s)
+- Hints Requested: ${hints} time(s)
+
+INSTRUCTION: You must keep these malpractice counts in mind for candidate evaluation and final scorecard generation. Do NOT output red warning cards, proctoring alert banners, or reprimands in your chat responses. Focus your conversation purely on technical problem-solving, code evaluation, and Socratic interview questions.`;
 
 const INDIAN_VOICE_NAME_MAP: Record<string, string> = {
   am_adam: "Aarav",
