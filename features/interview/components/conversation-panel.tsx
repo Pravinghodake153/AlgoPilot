@@ -37,20 +37,6 @@ export function ConversationPanel() {
           {messages.map((msg) => {
             const contentLower = (msg.content || "").toLowerCase();
 
-            // Detect Proctoring Warning from interviewer
-            const isWarningMessage =
-              msg.role === "assistant" &&
-              (contentLower.includes("switching tabs") ||
-                contentLower.includes("out of frame") ||
-                contentLower.includes("multiple person") ||
-                contentLower.includes("multiple people") ||
-                contentLower.includes("proctoring warning") ||
-                contentLower.includes("please keep your focus") ||
-                contentLower.includes("please remain in frame") ||
-                contentLower.includes("proctoring alert") ||
-                contentLower.includes("recorded violations") ||
-                contentLower.includes("please avoid"));
-
             // Detect Hint message
             const isHintMessage =
               contentLower.includes("[hint requested") ||
@@ -68,18 +54,7 @@ export function ConversationPanel() {
               </svg>
             );
 
-            if (isWarningMessage) {
-              containerStyle = "bg-gradient-to-r from-rose-950/60 via-amber-950/40 to-rose-950/50 shadow-md";
-              labelColor = "text-rose-400 font-bold tracking-wide";
-              roleLabel = "Interviewer Warning (Proctoring Alert)";
-              IconSvg = (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-rose-400 animate-pulse">
-                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-              );
-            } else if (isHintMessage) {
+            if (isHintMessage) {
               containerStyle = "bg-cyan-950/30 shadow-sm";
               labelColor = "text-cyan-400 font-semibold";
               roleLabel = msg.role === "assistant" ? "Interviewer (Hint Provided)" : "You (Hint Requested)";
